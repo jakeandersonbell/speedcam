@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stretford Radar | Traffic Analytics</title>
+    <title>Kings Road Traffic Feed</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -29,13 +29,16 @@
 
     <div class="container mx-auto p-4 lg:p-10 max-w-7xl">
         
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-6">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-6">
             <div>
                 <div class="flex items-center gap-3">
                     <span class="text-3xl">📡</span>
-                    <h1 class="text-3xl font-black tracking-tighter text-white uppercase italic">Stretford Radar</h1>
+                    <h1 class="text-3xl font-black tracking-tighter text-white uppercase italic">Kings Road Traffic Feed</h1>
                 </div>
-                <p class="text-slate-500 text-sm font-medium mt-1">Direct observation & speed analytics for traffic enforcement</p>
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="bg-blue-500/10 text-blue-400 text-[10px] font-bold px-2 py-0.5 rounded border border-blue-500/20 uppercase tracking-widest">Live Analysis</span>
+                    <p class="text-slate-500 text-xs font-medium">Monitoring vehicle velocity and volume on Kings Road</p>
+                </div>
             </div>
             
             <div class="flex flex-wrap items-center gap-3 bg-slate-900/50 p-2 rounded-2xl border border-slate-800">
@@ -45,35 +48,37 @@
                            class="bg-slate-800 w-14 px-1 py-1 rounded-lg border border-slate-700 text-center font-bold text-blue-400 focus:ring-2 focus:ring-blue-500 outline-none">
                 </div>
                 <button onclick="fetchData()" class="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all active:scale-95 flex items-center gap-2">
-                    <span>🔄</span> Refresh Feed
+                    <span>🔄</span> Refresh Data
                 </button>
             </div>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div class="bg-slate-900/40 border border-slate-800 p-4 rounded-2xl">
-                <p class="text-[10px] font-bold text-slate-500 uppercase">Total Volume</p>
-                <p id="stat-total" class="text-2xl font-black text-white">0</p>
+        <div class="mb-8 p-3 bg-slate-900/30 border-l-2 border-slate-700 rounded-r-lg max-w-2xl">
+            <p class="text-[11px] text-slate-400 leading-relaxed italic">
+                <strong>Calibration Note:</strong> All recorded speeds are automatically reduced by <strong>10%</strong>. This safety buffer accounts for potential perspective variance and ensures the data represents a "conservative minimum" speed, prioritizing accuracy and high-confidence reporting.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Observations</p>
+                <p id="stat-total" class="text-3xl font-black text-white mt-1">0</p>
             </div>
-            <div class="bg-slate-900/40 border border-slate-800 p-4 rounded-2xl">
-                <p class="text-[10px] font-bold text-slate-500 uppercase">Speeding %</p>
-                <p id="stat-pct" class="text-2xl font-black text-red-500">0%</p>
+            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Speeding Ratio</p>
+                <p id="stat-pct" class="text-3xl font-black text-red-500 mt-1">0%</p>
             </div>
-            <div class="bg-slate-900/40 border border-slate-800 p-4 rounded-2xl">
-                <p class="text-[10px] font-bold text-slate-500 uppercase">Max Speed (Adj)</p>
-                <p id="stat-max" class="text-2xl font-black text-blue-400">0 <span class="text-xs uppercase">mph</span></p>
-            </div>
-            <div class="bg-slate-900/40 border border-slate-800 p-4 rounded-2xl">
-                <p class="text-[10px] font-bold text-slate-500 uppercase">System Error Adj.</p>
-                <p class="text-2xl font-black text-slate-400">-10%</p>
+            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Max Speed (Adjusted)</p>
+                <p id="stat-max" class="text-3xl font-black text-blue-400 mt-1">0 <span class="text-xs uppercase font-normal text-slate-500">mph</span></p>
             </div>
         </div>
 
         <div class="flex flex-col lg:flex-row gap-8">
             <div class="flex flex-row lg:flex-col gap-2 lg:w-56 shrink-0">
-                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn bg-blue-600 text-white text-xs px-5 py-3 rounded-xl font-black uppercase tracking-widest text-left transition-colors">All Traffic</button>
-                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-3 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-colors">Speeders Only</button>
-                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-3 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-colors">Non-Speeding</button>
+                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn bg-blue-600 text-white text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left transition-all">Full Traffic</button>
+                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all">Speeders Only</button>
+                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all">Normal Flow</button>
             </div>
 
             <div class="flex-grow bg-slate-900/40 p-1 rounded-3xl border border-slate-800 shadow-inner">
@@ -84,17 +89,16 @@
                 </div>
 
                 <div class="flex justify-center gap-1 p-2 bg-slate-950/50 rounded-b-3xl border-t border-slate-800">
-                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition">24 Hours</button>
-                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition">7 Days</button>
-                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition">30 Days</button>
+                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition">Past 24h</button>
+                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition">Past Week</button>
+                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition">Past Month</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        // --- 1. FIREBASE CONFIG ---
-        // REPLACE WITH YOUR ACTUAL PROJECT CONFIG
+        // --- FIREBASE SETUP ---
         const firebaseConfig = {
             apiKey: "YOUR_API_KEY",
             authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -113,7 +117,6 @@
         let currentHorizon = 'day';
         let chart;
 
-        // --- 2. DATA PROCESSING (Includes 10% Correction) ---
         function processBins() {
             const threshold = parseInt(document.getElementById('threshold').value);
             const now = Math.floor(Date.now() / 1000);
@@ -132,7 +135,7 @@
             let totalObs = 0, speeders = 0, maxSpeed = 0;
 
             rawData.forEach(obs => {
-                // APPLY 10% ERROR REDUCTION
+                // 10% SAFETY BUFFER
                 const adjSpeed = obs.speed * 0.9;
                 
                 if (adjSpeed > maxSpeed) maxSpeed = adjSpeed;
@@ -140,17 +143,12 @@
                 const idx = Math.floor((obs.timestamp - startTime) / binSize);
                 if (idx >= 0 && idx < numBins) {
                     totalObs++;
-                    if (adjSpeed > threshold) {
-                        bins[idx].speeding++;
-                        speeders++;
-                    } else {
-                        bins[idx].normal++;
-                    }
+                    if (adjSpeed > threshold) { bins[idx].speeding++; speeders++; } 
+                    else { bins[idx].normal++; }
                     bins[idx].speeds.push(adjSpeed);
                 }
             });
 
-            // Update UI Stats
             document.getElementById('stat-total').innerText = totalObs.toLocaleString();
             document.getElementById('stat-pct').innerText = totalObs > 0 ? ((speeders/totalObs)*100).toFixed(1) + '%' : '0%';
             document.getElementById('stat-max').innerText = maxSpeed.toFixed(1);
@@ -158,13 +156,11 @@
             return bins;
         }
 
-        // --- 3. CUSTOM HISTOGRAM GENERATOR ---
         const getTooltipHtml = (bin) => {
             const threshold = parseInt(document.getElementById('threshold').value);
             const total = bin.speeding + bin.normal;
             const pct = total > 0 ? ((bin.speeding/total)*100).toFixed(0) : 0;
             
-            // Histogram Bins
             const ranges = [20, 25, 30, 35, 40, 99];
             const counts = [0,0,0,0,0,0];
             bin.speeds.forEach(s => {
@@ -180,15 +176,12 @@
             });
             histHtml += '</div>';
 
-            const timeStr = new Date(bin.t * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            const dateStr = new Date(bin.t * 1000).toLocaleDateString();
-
             return `
-                <div class="text-[10px] font-black text-slate-500 uppercase tracking-tighter">${dateStr} @ ${timeStr}</div>
+                <div class="text-[10px] font-black text-slate-500 uppercase tracking-tighter">${new Date(bin.t * 1000).toLocaleString()}</div>
                 <div class="text-3xl font-black text-white mt-1">${total} <span class="text-[10px] text-slate-500">CARS</span></div>
                 <div class="flex items-center gap-2 mt-1">
                     <div class="h-2 w-2 rounded-full ${pct > 30 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
-                    <span class="text-xs font-black uppercase ${pct > 30 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeders</span>
+                    <span class="text-xs font-black uppercase ${pct > 30 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeding Ratio</span>
                 </div>
                 ${histHtml}
                 <div class="flex justify-between text-[8px] font-black text-slate-600 uppercase tracking-widest">
@@ -197,7 +190,6 @@
             `;
         };
 
-        // --- 4. CHART CORE ---
         function renderChart() {
             const bins = processBins();
             const ctx = document.getElementById('trafficChart').getContext('2d');
@@ -221,11 +213,8 @@
                             external: function(context) {
                                 const tooltipEl = document.getElementById('chart-tooltip');
                                 if (context.tooltip.opacity === 0) { tooltipEl.style.opacity = 0; return; }
-                                
                                 const binIdx = context.tooltip.dataPoints[0].dataIndex;
                                 tooltipEl.innerHTML = getTooltipHtml(bins[binIdx]);
-                                
-                                // FIXED STICKY POSITIONING
                                 const position = context.chart.canvas.getBoundingClientRect();
                                 tooltipEl.style.opacity = 1;
                                 tooltipEl.style.left = position.left + window.pageXOffset + context.tooltip.caretX + 'px';
@@ -244,20 +233,20 @@
 
         function fetchData() {
             const btn = document.querySelector('button[onclick="fetchData()"]');
-            btn.innerText = "⌛ SYNCING...";
+            btn.innerText = "⌛ Syncing...";
             db.ref('observations').once('value', (snap) => {
                 const val = snap.val();
                 rawData = val ? Object.values(val) : [];
                 renderChart();
-                btn.innerText = "🔄 Refresh Feed";
+                btn.innerText = "🔄 Refresh Data";
             });
         }
 
         function updateFilter(f) {
             currentFilter = f;
-            document.querySelectorAll('.filter-btn').forEach(b => b.className = "filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-3 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-colors");
+            document.querySelectorAll('.filter-btn').forEach(b => b.className = "filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all");
             const activeId = f === 'non-speeding' ? 'btn-non' : 'btn-' + f;
-            document.getElementById(activeId).className = "filter-btn bg-blue-600 text-white text-xs px-5 py-3 rounded-xl font-black uppercase tracking-widest text-left transition-colors";
+            document.getElementById(activeId).className = "filter-btn bg-blue-600 text-white text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left transition-all";
             renderChart();
         }
 
