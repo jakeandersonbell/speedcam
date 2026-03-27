@@ -3,50 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stretford Radar Dashboard</title>
+    <title>Stretford Analytics Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-
     <style>
-        canvas { width: 100% !important; height: 400px !important; }
-        @media (max-width: 768px) { canvas { height: 300px !important; } }
+        #chart-tooltip {
+            opacity: 0; position: absolute; background: rgba(0, 0, 0, 0.9); color: white;
+            border-radius: 6px; padding: 10px; pointer-events: none; transition: all .1s ease;
+            border: 1px solid #444; z-index: 100; min-width: 160px;
+        }
+        .hist-bar { background: #3b82f6; width: 12px; margin-right: 2px; align-self: flex-end; }
+        .hist-bar.speeding { background: #ef4444; }
     </style>
 </head>
-<body class="bg-gray-900 text-white min-h-screen">
+<body class="bg-gray-950 text-slate-200 min-h-screen font-sans">
 
-    <div class="container mx-auto p-4 max-w-6xl">
-        <header class="mb-8 border-b border-gray-700 pb-4">
-            <h1 class="text-3xl font-bold">📡 Stretford Traffic Analytics</h1>
-            <p class="text-gray-400">Real-time speed observation monitoring</p>
-        </header>
+    <div id="chart-tooltip"></div>
 
-        <div class="flex flex-col md:flex-row gap-6">
-            <div class="flex flex-row md:flex-col gap-2 md:w-48 shrink-0">
-                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn bg-blue-600 px-4 py-2 rounded font-bold transition">All</button>
-                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn bg-gray-800 px-4 py-2 rounded font-bold transition">Speeding</button>
-                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn bg-gray-800 px-4 py-2 rounded font-bold transition">Non-Speeding</button>
+    <div class="container mx-auto p-4 lg:p-8 max-w-7xl">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div>
+                <h1 class="text-3xl font-black tracking-tight text-white">📡 STRETFORD RADAR</h1>
+                <p class="text-slate-400 text-sm">Traffic Analytics & Speed Observation</p>
             </div>
-
-            <div class="flex-grow bg-gray-800 p-4 rounded-xl shadow-2xl relative">
-                <div id="loader" class="absolute inset-0 flex items-center justify-center bg-gray-800 z-10">
-                    <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-blue-500"></div>
-                </div>
-                <canvas id="trafficChart"></canvas>
+            
+            <div class="flex items-center gap-3 bg-gray-900 p-2 rounded-lg border border-gray-800">
+                <label class="text-xs font-bold uppercase text-gray-500 ml-2">Limit:</label>
+                <input type="number" id="threshold" value="30" onchange="renderChart()" 
+                       class="bg-gray-800 w-16 px-2 py-1 rounded border border-gray-700 focus:outline-none focus:border-blue-500 text-center font-bold">
+                <button onclick="fetchData()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1 rounded text-sm font-bold transition">
+                    🔄 Refresh Data
+                </button>
             </div>
         </div>
 
-        <div class="flex justify-center gap-4 mt-8">
-            <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn border-b-2 border-blue-500 px-6 py-2">Past 24h</button>
-            <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn border-b-2 border-transparent px-6 py-2 hover:bg-gray-800">Past Week</button>
-            <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn border-b-2 border-transparent px-6 py-2 hover:bg-gray-800">Past Month</button>
+        <div class="flex flex-col md:flex-row gap-6">
+            <div class="flex flex-row md:flex-col gap-2 md:w-48 shrink-0">
+                <p class="hidden md:block text-xs font-bold text-gray-500 mb-1 uppercase px-1">Filters</p>
+                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn bg-blue-600 text-sm px-4 py-2 rounded-md font-bold text-left">All Traffic</button>
+                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn bg-gray-900 text-sm px-4 py-2 rounded-md font-bold text-left hover:bg-gray-800">Speeding Only</button>
+                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn bg-gray-900 text-sm px-4 py-2 rounded-md font-bold text-left hover:bg-gray-800">Non-Speeding</button>
+            </div>
+
+            <div class="flex-grow bg-gray-900 p-6 rounded-2xl border border-gray-800 shadow-2xl">
+                <div class="h-[400px] relative">
+                    <canvas id="trafficChart"></canvas>
+                </div>
+
+                <div class="flex justify-center gap-1 mt-6 bg-black/30 p-1 rounded-full w-fit mx-auto border border-gray-800">
+                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-gray-800 text-xs px-5 py-2 rounded-full font-bold transition">24 Hours</button>
+                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-xs px-5 py-2 rounded-full font-bold text-gray-500 hover:text-white transition">7 Days</button>
+                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-xs px-5 py-2 rounded-full font-bold text-gray-500 hover:text-white transition">30 Days</button>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        // --- 1. FIREBASE CONFIG ---
-        // PASTE YOUR CONFIG FROM FIREBASE CONSOLE HERE
+        // --- 1. CONFIG (Paste your real config here) ---
         const firebaseConfig = {
             apiKey: "...",
             authDomain: "...",
@@ -60,143 +76,138 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        // --- 2. STATE MANAGEMENT ---
         let rawData = [];
-        let currentFilter = 'all'; // all, speeding, non-speeding
-        let currentHorizon = 'day'; // day, week, month
+        let currentFilter = 'all';
+        let currentHorizon = 'day';
         let chart;
 
-        const SPEED_LIMIT = 30; // Threshold for speeding
-
-        // --- 3. DATA PROCESSING ---
-        function processData() {
+        // --- 2. DATA BINNING ---
+        function processBins() {
+            const threshold = parseInt(document.getElementById('threshold').value);
             const now = Math.floor(Date.now() / 1000);
-            let binSize, numBins, startTime;
+            let binSize, numBins;
 
-            if (currentHorizon === 'day') {
-                binSize = 3600; // 1 hour
-                numBins = 24;
-            } else if (currentHorizon === 'week') {
-                binSize = 21600; // 6 hours
-                numBins = 28;
-            } else {
-                binSize = 86400; // 1 day
-                numBins = 30;
-            }
+            if (currentHorizon === 'day') { binSize = 3600; numBins = 24; }
+            else if (currentHorizon === 'week') { binSize = 21600; numBins = 28; }
+            else { binSize = 86400; numBins = 30; }
 
-            startTime = now - (numBins * binSize);
+            const startTime = now - (numBins * binSize);
             const bins = Array.from({length: numBins}, (_, i) => ({
-                label: '',
-                speeding: 0,
-                normal: 0,
-                speeds: [] // For the distribution tooltip
+                t: startTime + (i * binSize),
+                speeding: 0, normal: 0, speeds: []
             }));
 
             rawData.forEach(obs => {
-                if (obs.timestamp < startTime) return;
-                const binIdx = Math.floor((obs.timestamp - startTime) / binSize);
-                if (binIdx >= 0 && binIdx < numBins) {
-                    if (obs.speed > SPEED_LIMIT) bins[binIdx].speeding++;
-                    else bins[binIdx].normal++;
-                    bins[binIdx].speeds.push(obs.speed);
+                const idx = Math.floor((obs.timestamp - startTime) / binSize);
+                if (idx >= 0 && idx < numBins) {
+                    if (obs.speed > threshold) bins[idx].speeding++;
+                    else bins[idx].normal++;
+                    bins[idx].speeds.push(obs.speed);
                 }
             });
-
-            // Format Labels
-            bins.forEach((b, i) => {
-                const d = new Date((startTime + (i * binSize)) * 1000);
-                if (currentHorizon === 'day') b.label = d.getHours() + ':00';
-                else if (currentHorizon === 'week') b.label = d.getDate() + '/' + (d.getMonth()+1) + ' ' + d.getHours() + ':00';
-                else b.label = d.getDate() + '/' + (d.getMonth()+1);
-            });
-
             return bins;
         }
 
-        // --- 4. CHART RENDERING ---
+        // --- 3. CUSTOM HISTOGRAM TOOLTIP ---
+        const getTooltipHtml = (bin) => {
+            const threshold = parseInt(document.getElementById('threshold').value);
+            const total = bin.speeding + bin.normal;
+            const pct = total > 0 ? ((bin.speeding/total)*100).toFixed(0) : 0;
+            
+            // Generate Histogram logic (bins: <20, 20-25, 25-30, 30-35, 35-40, 40+)
+            const ranges = [20, 25, 30, 35, 40, 999];
+            const counts = [0,0,0,0,0,0];
+            bin.speeds.forEach(s => {
+                for(let i=0; i<ranges.length; i++) { if(s < ranges[i]) { counts[i]++; break; } }
+            });
+            const max = Math.max(...counts) || 1;
+
+            let histHtml = '<div class="flex items-end h-12 mt-2 border-b border-gray-700">';
+            counts.forEach((c, i) => {
+                const isSpeeding = ranges[i-1] >= threshold || (i==0 && 0 >= threshold);
+                const h = (c/max) * 100;
+                histHtml += `<div class="hist-bar ${ranges[i] > threshold ? 'speeding' : ''}" style="height:${h}%" title="${c} cars"></div>`;
+            });
+            histHtml += '</div>';
+
+            return `
+                <div class="text-xs font-bold text-gray-400 mb-1">${new Date(bin.t * 1000).toLocaleString()}</div>
+                <div class="text-lg font-black text-white">${total} <span class="text-xs font-normal text-gray-500 text-gray-500">OBSERVATIONS</span></div>
+                <div class="text-sm font-bold ${pct > 20 ? 'text-red-500' : 'text-green-500'}">${pct}% SPEEDING</div>
+                ${histHtml}
+                <div class="flex justify-between text-[8px] text-gray-500 mt-1 uppercase font-bold">
+                    <span>10</span><span>25</span><span>40+</span>
+                </div>
+            `;
+        };
+
+        // --- 4. RENDER ---
         function renderChart() {
-            const data = processData();
+            const bins = processBins();
             const ctx = document.getElementById('trafficChart').getContext('2d');
             
-            const speedingSet = {
-                label: 'Speeding (>30mph)',
-                data: data.map(b => b.speeding),
-                backgroundColor: '#ef4444', // Red-500
-                hidden: currentFilter === 'non-speeding'
-            };
-
-            const normalSet = {
-                label: 'Normal Flow',
-                data: data.map(b => b.normal),
-                backgroundColor: '#6b7280', // Gray-500
-                hidden: currentFilter === 'speeding'
-            };
-
             if (chart) chart.destroy();
-
             chart = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: data.map(b => b.label),
-                    datasets: [speedingSet, normalSet]
+                    labels: bins.map(b => currentHorizon === 'day' ? new Date(b.t*1000).getHours()+':00' : new Date(b.t*1000).toLocaleDateString()),
+                    datasets: [
+                        { label: 'Speeding', data: bins.map(b => b.speeding), backgroundColor: '#ef4444', hidden: currentFilter === 'non-speeding', stack: 'a' },
+                        { label: 'Normal', data: bins.map(b => b.normal), backgroundColor: '#334155', hidden: currentFilter === 'speeding', stack: 'a' }
+                    ]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: { stacked: true, grid: { display: false }, ticks: { color: '#9ca3af' } },
-                        y: { stacked: true, beginAtZero: true, grid: { color: '#374151' }, ticks: { color: '#9ca3af' } }
-                    },
-                    plugins: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { 
                         legend: { display: false },
                         tooltip: {
-                            callbacks: {
-                                label: (context) => {
-                                    const bin = data[context.dataIndex];
-                                    const total = bin.speeding + bin.normal;
-                                    const pct = total > 0 ? ((bin.speeding / total) * 100).toFixed(1) : 0;
-                                    
-                                    // Generate lightweight speed distribution string
-                                    const s = bin.speeds;
-                                    const dist = `Dist: <20: ${s.filter(v=>v<20).length} | 20-30: ${s.filter(v=>v>=20&&v<=30).length} | 30+: ${s.filter(v=>v>30).length}`;
-                                    
-                                    return [
-                                        `Total: ${total} cars`,
-                                        `Speeders: ${pct}%`,
-                                        dist
-                                    ];
-                                }
+                            enabled: false,
+                            external: function(context) {
+                                const tooltipEl = document.getElementById('chart-tooltip');
+                                if (context.tooltip.opacity === 0) { tooltipEl.style.opacity = 0; return; }
+                                
+                                const binIdx = context.tooltip.dataPoints[0].dataIndex;
+                                tooltipEl.innerHTML = getTooltipHtml(bins[binIdx]);
+                                
+                                const { offsetLeft: lineLeft, offsetTop: lineTop } = context.chart.canvas;
+                                tooltipEl.style.opacity = 1;
+                                tooltipEl.style.left = lineLeft + context.tooltip.caretX + 'px';
+                                tooltipEl.style.top = lineTop + context.tooltip.caretY - 120 + 'px';
                             }
                         }
+                    },
+                    scales: {
+                        x: { stacked: true, grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
+                        y: { stacked: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }
                     }
                 }
             });
-            document.getElementById('loader').classList.add('hidden');
         }
 
-        // --- 5. INTERACTION LOGIC ---
+        function fetchData() {
+            document.querySelector('button[onclick="fetchData()"]').innerText = "⌛ Loading...";
+            db.ref('observations').once('value', (snap) => {
+                rawData = snap.val() ? Object.values(snap.val()) : [];
+                renderChart();
+                document.querySelector('button[onclick="fetchData()"]').innerText = "🔄 Refresh Data";
+            });
+        }
+
         function updateFilter(f) {
             currentFilter = f;
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.replace('bg-blue-600', 'bg-gray-800'));
-            if (f === 'all') document.getElementById('btn-all').classList.replace('bg-gray-800', 'bg-blue-600');
-            else if (f === 'speeding') document.getElementById('btn-speeding').classList.replace('bg-gray-800', 'bg-blue-600');
-            else document.getElementById('btn-non').classList.replace('bg-gray-800', 'bg-blue-600');
+            document.querySelectorAll('.filter-btn').forEach(b => b.className = "filter-btn bg-gray-900 text-sm px-4 py-2 rounded-md font-bold text-left hover:bg-gray-800");
+            document.getElementById('btn-' + (f==='non-speeding'?'non':f)).className = "filter-btn bg-blue-600 text-sm px-4 py-2 rounded-md font-bold text-left";
             renderChart();
         }
 
         function updateHorizon(h) {
             currentHorizon = h;
-            document.querySelectorAll('.hz-btn').forEach(b => b.classList.replace('border-blue-500', 'border-transparent'));
-            document.getElementById('hz-' + h).classList.replace('border-transparent', 'border-blue-500');
+            document.querySelectorAll('.hz-btn').forEach(b => b.className = "hz-btn text-xs px-5 py-2 rounded-full font-bold text-gray-500 hover:text-white transition");
+            document.getElementById('hz-' + h).className = "hz-btn bg-gray-800 text-xs px-5 py-2 rounded-full font-bold transition";
             renderChart();
         }
 
-        // --- 6. DATA FETCH ---
-        db.ref('observations').on('value', (snapshot) => {
-            const val = snapshot.val();
-            rawData = val ? Object.values(val) : [];
-            renderChart();
-        });
+        fetchData();
     </script>
 </body>
 </html>
