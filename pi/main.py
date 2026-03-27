@@ -1,132 +1,113 @@
 import cv2, time, collections, subprocess, numpy as np, os, threading
+from pi.config import *
 
-# --- 1. CONFIGURATION ---
-WIDTH, HEIGHT = 640, 480
-FRAME_SIZE = int(WIDTH * HEIGHT * 1.5)
-PRE_ROLL, POST_ROLL = 3, 7
-
-# Perspective (Stretford POV)
-Y_FAR, MPP_FAR = 250, 0.056
-Y_NEAR, MPP_NEAR = 400, 0.035
-SLOPE = (MPP_NEAR - MPP_FAR) / (Y_NEAR - Y_FAR)
-
-# --- THE SURGICAL CROP & VERTICAL FILTER ---
-CROP_X1, CROP_X2 = 260, 520  
-CROP_Y1, CROP_Y2 = 270, 430  
-CROP_W, CROP_H = (CROP_X2 - CROP_X1), (CROP_Y2 - CROP_Y1)
-
-# NEW: Ignore anything where the car's bottom Y is less than this.
-# This effectively 'blinds' the AI to the parked cars near the kerb.
-IGNORE_Y_ABOVE = 345  
-
-# Thresholds
-MIN_CONF = 0.18             
-MIN_DISPLACEMENT_PX = 25    
-MAX_VARIANCE = 9.0          
-MOTION_THRESHOLD = 15000    
-TRIGGER_COOLDOWN = 2.5      
-
-MODEL_FILE = "yolov8n.onnx"
-LOG_FILE = "traffic_log.csv"
-
-# --- 2. INITIALISE ---
-print("🧠 Loading AI (Vertical Exclusion Mode)...")
-net = cv2.dnn.readNetFromONNX(MODEL_FILE)
-net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-
+# --- INITIALISATION ---
 roi_mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
 roi_mask[CROP_Y1:CROP_Y2, CROP_X1:CROP_X2] = 255
+fgbg = cv2.createBackgroundSubtractorMOG2(history=800, varThreshold=100, detectShadows=True)
 
-# --- 3. HELPER FUNCTIONS ---
+hw_history = collections.deque(maxlen=RATIO_HISTORY_SIZE)
+last_clocked_times = {'near': 0, 'far': 0}
 
-def get_mpp(y):
-    return np.clip(MPP_FAR + SLOPE * (y - Y_FAR), 0.030, 0.065)
+def get_rain_offset():
+    """ Lifts the tracking point if reflections are stretching the blob. """
+    if len(hw_history) < 5: return 0
+    avg_ratio = np.median(hw_history)
+    if avg_ratio > DRY_HW_RATIO:
+        return int((avg_ratio - DRY_HW_RATIO) * 80)
+    return 0
 
-def get_car_coords_direct(img):
-    roi = img[CROP_Y1:CROP_Y2, CROP_X1:CROP_X2]
-    blob = cv2.dnn.blobFromImage(roi, 1/255.0, (640, 640), swapRB=True)
-    net.setInput(blob)
-    out = np.transpose(net.forward()[0])
+def get_blobs_as_instances(frame):
+    masked = cv2.bitwise_and(frame, frame, mask=roi_mask)
+    fgmask = fgbg.apply(masked)
+    kernel = np.ones((5,5), np.uint8)
+    fgmask = cv2.dilate(fgmask, kernel, iterations=3)
+    _, thresh = cv2.threshold(fgmask, 200, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    best = None
-    for r in out:
-        conf = r[4:].max()
-        if conf > MIN_CONF and np.argmax(r[4:]) == 2:
-            # Map coordinates
-            real_cx = int((r[0] / 640) * CROP_W) + CROP_X1
-            real_cy = int((r[1] / 640) * CROP_H) + CROP_Y1
-            real_h = int((r[3] / 640) * CROP_H)
-            real_w = int((r[2] / 640) * CROP_W)
-            
-            y_bottom = real_cy + (real_h // 2)
-            
-            # --- THE VERTICAL FILTER ---
-            if y_bottom < IGNORE_Y_ABOVE:
-                continue # Skip the parked cars!
+    instances = []
+    for cnt in contours:
+        if cv2.contourArea(cnt) > MIN_AREA:
+            x, y, w, h = cv2.boundingRect(cnt)
+            instances.append({'center': (x + w//2, y + h//2), 'w': w, 'h': h, 'ratio': h / w})
+    return instances
 
-            if best is None or conf > best[1]:
-                coords = (real_cx, y_bottom)
-                box = [real_cx - real_w//2, real_cy - real_h//2, real_w, real_h]
-                best = (coords, conf, box)
-    return best
+def analyse_event(frames_with_times, ts):
+    global last_clocked_times, hw_history
+    active_tracks = [] 
 
-# --- 4. THE DETECTIVE ---
+    for frame, arrival_time in frames_with_times:
+        current_blobs = get_blobs_as_instances(frame)
+        for blob in current_blobs:
+            matched = False
+            for track in active_tracks:
+                lx, ly, _ = track['points'][-1]
+                dist = np.sqrt((blob['center'][0] - lx)**2 + (blob['center'][1] - ly)**2)
+                if dist < 95:
+                    track['points'].append((blob['center'][0], blob['center'][1], arrival_time))
+                    track['widths'].append(blob['w'])
+                    track['ratios'].append(blob['ratio'])
+                    matched = True
+                    break
+            if not matched:
+                active_tracks.append({'points': [(blob['center'][0], blob['center'][1], arrival_time)], 'widths': [blob['w']], 'ratios': [blob['ratio']]})
 
-def analyse_event(frames, ts):
-    print(f"🕵️ Analysing lane event from {ts}...")
-    pts = []
-    debug_frames = []
-    
-    for i in [0, 4, 8]:
-        if i >= len(frames): break
-        img = frames[i].copy()
-        res = get_car_coords_direct(img)
+    for car in active_tracks:
+        path = car['points']
+        if len(path) < MIN_POINTS_FOR_TRACK: continue
+
+        # Update global ratio memory for rain compensation
+        this_car_ratio = np.median(car['ratios'])
+        hw_history.append(this_car_ratio)
+
+        # 1. Lane Determination by Width
+        median_w = np.median(car['widths'])
+        lane = 'near' if median_w > LANE_WIDTH_THRESHOLD else 'far'
         
-        if res:
-            coords, conf, box = res 
-            pts.append(coords)
-            cv2.rectangle(img, (box[0], box[1]), (box[0]+box[2], box[1]+box[3]), (0, 255, 255), 2)
-            cv2.circle(img, coords, 5, (0, 0, 255), -1)
-        else:
-            pts.append(None)
+        if time.time() - last_clocked_times[lane] < 0.4: continue
+
+        # 2. Scale & Offset
+        offset = get_rain_offset()
+        mpp = MPP_NEAR if lane == 'near' else MPP_FAR
         
-        # Draw the filter line on debug images (Red Line)
-        cv2.line(img, (CROP_X1, IGNORE_Y_ABOVE), (CROP_X2, IGNORE_Y_ABOVE), (0, 0, 255), 2)
-        debug_frames.append(img)
-    
-    cv2.imwrite(f"debug_filtered_{int(time.time())}.jpg", np.hstack(debug_frames))
+        speeds = []
+        for i in range(len(path) - 1):
+            p1, p2 = path[i], path[i+1]
+            dx, dt = (p2[0] - p1[0]), (p2[2] - p1[2])
+            if abs(dx) > 3 and dt > 0:
+                mph = (abs(dx) * mpp / dt) * 2.237
+                speeds.append(mph)
 
-    if len(pts) < 3 or not all(pts):
-        return 
+        if not speeds: continue
+        final_speed = np.median(speeds)
+        std_dev = np.std(speeds)
 
-    # Speed Maths (0.4s intervals)
-    x0, y0 = pts[0]
-    x4, y4 = pts[1]
-    x8, y8 = pts[2]
+        if not (MIN_PLAUSIBLE_SPEED < final_speed < MAX_PLAUSIBLE_SPEED): continue
+        if std_dev > MAX_VARIANCE: continue
 
-    s1 = (abs(x4 - x0) * get_mpp(y4) / 0.4) * 2.237
-    s2 = (abs(x8 - x4) * get_mpp(y8) / 0.4) * 2.237
-    avg, var = (s1 + s2) / 2, abs(s1 - s2)
+        # Success!
+        last_clocked_times[lane] = time.time()
+        res_img = frames_with_times[len(frames_with_times)//2][0].copy()
+        
+        # Draw path with offset correction
+        for p in path:
+            cv2.circle(res_img, (int(p[0]), int(p[1]) - offset), 4, (0, 255, 0), -1)
+        
+        # HUD Rendering
+        cv2.putText(res_img, f"{final_speed:.1f} MPH", (20, 435), 2, 1.1, (0, 255, 0), 2)
+        status = f"{lane.upper()} | Width: {int(median_w)}px | Env-R: {np.mean(hw_history):.2f}"
+        cv2.putText(res_img, status, (20, 465), 2, 0.45, (255, 255, 255), 1)
+        
+        cv2.imwrite(f"verified_{int(final_speed)}mph_{int(time.time())}.jpg", res_img)
+        print(f"🎯 CLOCKED {lane.upper()}: {final_speed:.1f} MPH (Verified Scale)")
 
-    if var < MAX_VARIANCE:
-        print(f"🎯 CLOCKED: {avg:.1f} MPH")
-        res_img = frames[4].copy()
-        cv2.putText(res_img, f"{avg:.1f} MPH", (15, 445), 2, 0.8, (0, 255, 0), 2)
-        cv2.imwrite(f"verified_{int(avg)}_{int(time.time())}.jpg", res_img)
-        with open(LOG_FILE, "a") as f:
-            f.write(f"{ts},{avg:.1f},{var:.1f}\n")
-
-# --- 5. THE MAIN LOOP ---
-cmd = ['rpicam-vid', '-t', '0', '--width', '640', '--height', '480', '--nopreview', 
-       '--codec', 'yuv420', '--framerate', '30', '--autofocus-mode', 'manual', 
-       '--lens-position', '0', '-o', '-']
-
-pipe = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=FRAME_SIZE * 20)
-fgbg = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=75)
-
+# --- MAIN LOOP ---
+cmd = ['rpicam-vid', '-t', '0', '--width', str(WIDTH), '--height', str(HEIGHT), '--nopreview', '--codec', 'yuv420', '--framerate', '30', '-o', '-']
+pipe = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=FRAME_SIZE * 30)
 rolling_buffer = collections.deque(maxlen=PRE_ROLL)
 is_recording, last_trigger, frame_count = False, 0, 0
+
+print(f"📡 Stretford Radar v9.1 [GPS-Corrected] Active.")
 
 try:
     while True:
@@ -134,26 +115,26 @@ try:
         if len(raw) != FRAME_SIZE: continue 
         frame_count += 1
         
-        if frame_count % 3 == 0:
+        if frame_count % 2 == 0:
             yuv = np.frombuffer(raw, dtype=np.uint8).reshape((int(HEIGHT * 1.5), WIDTH))
             frame = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
-            rolling_buffer.append(frame)
-
-            mask = fgbg.apply(cv2.bitwise_and(frame, frame, mask=roi_mask))
-            score = np.sum(cv2.threshold(mask, 250, 255, cv2.THRESH_BINARY)[1])
-            
             now = time.time()
+            frame_data = (frame, now)
+            rolling_buffer.append(frame_data)
+            
+            masked = cv2.bitwise_and(frame, frame, mask=roi_mask)
+            mask = fgbg.apply(masked)
+            score = np.sum(cv2.threshold(mask, 250, 255, cv2.THRESH_BINARY)[1]) // 255
+            
             if score > MOTION_THRESHOLD and not is_recording and (now - last_trigger) > TRIGGER_COOLDOWN:
                 is_recording, last_trigger = True, now
-                captured_frames = list(rolling_buffer)
+                event_buffer = list(rolling_buffer)
 
             if is_recording:
-                captured_frames.append(frame)
-                if len(captured_frames) >= (PRE_ROLL + POST_ROLL):
-                    t = threading.Thread(target=analyse_event, args=(list(captured_frames), time.strftime("%H:%M:%S")))
-                    t.daemon = True
-                    t.start()
-                    is_recording, captured_frames = False, []
-
+                event_buffer.append(frame_data)
+                if len(event_buffer) >= (PRE_ROLL + POST_ROLL):
+                    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+                    threading.Thread(target=analyse_event, args=(list(event_buffer), ts), daemon=True).start()
+                    is_recording, event_buffer = False, []
 except KeyboardInterrupt:
     pipe.terminate()
