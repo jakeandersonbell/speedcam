@@ -55,7 +55,7 @@
 
         <div class="mb-8 p-3 bg-slate-900/30 border-l-2 border-slate-700 rounded-r-lg max-w-2xl">
             <p class="text-[11px] text-slate-400 leading-relaxed italic">
-                <strong>Calibration Note:</strong> All recorded speeds are automatically reduced by <strong>10%</strong>. This safety buffer accounts for potential perspective variance and ensures the data represents a "conservative minimum" speed, prioritizing accuracy and high-confidence reporting.
+                <strong>Calibration Note:</strong> All recorded speeds are automatically reduced by <strong>10%</strong>. This safety buffer accounts for potential perspective variance and ensures the data represents a "conservative minimum" speed.
             </p>
         </div>
 
@@ -88,17 +88,17 @@
                     </div>
                 </div>
 
-                <div class="flex justify-center gap-1 p-2 bg-slate-950/50 rounded-b-3xl border-t border-slate-800">
-                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition">Past 24h</button>
-                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition">Past Week</button>
-                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition">Past Month</button>
+                <div class="flex justify-center gap-1 p-2 bg-slate-950/50 rounded-b-3xl border-t border-slate-800 overflow-x-auto">
+                    <button onclick="updateHorizon('hour')" id="hz-hour" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Hour</button>
+                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap">Past 24h</button>
+                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Week</button>
+                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Month</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        // --- FIREBASE SETUP ---
         const firebaseConfig = {
             apiKey: "YOUR_API_KEY",
             authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -122,7 +122,9 @@
             const now = Math.floor(Date.now() / 1000);
             let binSize, numBins;
 
-            if (currentHorizon === 'day') { binSize = 3600; numBins = 24; }
+            // NEW 5-MINUTE BIN LOGIC
+            if (currentHorizon === 'hour') { binSize = 300; numBins = 12; }
+            else if (currentHorizon === 'day') { binSize = 3600; numBins = 24; }
             else if (currentHorizon === 'week') { binSize = 21600; numBins = 28; }
             else { binSize = 86400; numBins = 30; }
 
@@ -135,9 +137,7 @@
             let totalObs = 0, speeders = 0, maxSpeed = 0;
 
             rawData.forEach(obs => {
-                // 10% SAFETY BUFFER
                 const adjSpeed = obs.speed * 0.9;
-                
                 if (adjSpeed > maxSpeed) maxSpeed = adjSpeed;
 
                 const idx = Math.floor((obs.timestamp - startTime) / binSize);
@@ -177,11 +177,11 @@
             histHtml += '</div>';
 
             return `
-                <div class="text-[10px] font-black text-slate-500 uppercase tracking-tighter">${new Date(bin.t * 1000).toLocaleString()}</div>
+                <div class="text-[10px] font-black text-slate-500 uppercase tracking-tighter">${new Date(bin.t * 1000).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}</div>
                 <div class="text-3xl font-black text-white mt-1">${total} <span class="text-[10px] text-slate-500">CARS</span></div>
                 <div class="flex items-center gap-2 mt-1">
                     <div class="h-2 w-2 rounded-full ${pct > 30 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
-                    <span class="text-xs font-black uppercase ${pct > 30 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeding Ratio</span>
+                    <span class="text-xs font-black uppercase ${pct > 30 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeders</span>
                 </div>
                 ${histHtml}
                 <div class="flex justify-between text-[8px] font-black text-slate-600 uppercase tracking-widest">
@@ -198,7 +198,11 @@
             chart = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: bins.map(b => currentHorizon === 'day' ? new Date(b.t*1000).getHours()+':00' : new Date(b.t*1000).toLocaleDateString([], {day:'numeric', month:'short'})),
+                    labels: bins.map(b => {
+                        const date = new Date(b.t*1000);
+                        if (currentHorizon === 'hour' || currentHorizon === 'day') return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        return date.toLocaleDateString([], {day:'numeric', month:'short'});
+                    }),
                     datasets: [
                         { label: 'Speeding', data: bins.map(b => b.speeding), backgroundColor: '#ef4444', hidden: currentFilter === 'non-speeding', stack: 'a', borderRadius: 4 },
                         { label: 'Normal', data: bins.map(b => b.normal), backgroundColor: '#1e293b', hidden: currentFilter === 'speeding', stack: 'a', borderRadius: 4 }
@@ -252,8 +256,8 @@
 
         function updateHorizon(h) {
             currentHorizon = h;
-            document.querySelectorAll('.hz-btn').forEach(b => b.className = "hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition");
-            document.getElementById('hz-' + h).className = "hz-btn bg-slate-800 text-white text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition";
+            document.querySelectorAll('.hz-btn').forEach(b => b.className = "hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap");
+            document.getElementById('hz-' + h).className = "hz-btn bg-slate-800 text-white text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap";
             renderChart();
         }
 
