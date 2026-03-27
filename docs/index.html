@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Kings Road Traffic Feed</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -20,7 +20,8 @@
         }
         .hist-bar { background: #3b82f6; width: 14px; margin-right: 3px; align-self: flex-end; border-radius: 2px 2px 0 0; }
         .hist-bar.speeding { background: #ef4444; }
-        canvas { cursor: crosshair; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
 <body class="text-slate-200 min-h-screen font-sans">
@@ -29,79 +30,88 @@
 
     <div class="container mx-auto p-4 lg:p-10 max-w-7xl">
         
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-6">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-6">
             <div>
                 <div class="flex items-center gap-3">
-                    <span class="text-3xl">📡</span>
-                    <h1 class="text-3xl font-black tracking-tighter text-white uppercase italic">Kings Road Traffic Feed</h1>
+                    <span class="text-2xl md:text-3xl">📡</span>
+                    <h1 class="text-2xl md:text-4xl font-black tracking-tighter text-white uppercase italic">Kings Road Traffic Feed</h1>
                 </div>
-                <div class="flex items-center gap-2 mt-1">
-                    <span class="bg-blue-500/10 text-blue-400 text-[10px] font-bold px-2 py-0.5 rounded border border-blue-500/20 uppercase tracking-widest">Live Analysis</span>
-                    <p class="text-slate-500 text-xs font-medium">Monitoring vehicle velocity and volume on Kings Road</p>
+                <div class="mt-4 max-w-2xl">
+                    <p class="text-slate-300 text-sm leading-relaxed">
+                        This project monitors vehicle speeds and traffic volume on Kings Road. It uses a Raspberry Pi and computer vision to log how many cars pass by and how fast they’re actually going. 
+                        <span class="text-slate-500 italic block mt-1 text-xs font-medium uppercase tracking-wider">
+                            Note: All speeds shown are reduced by 10% to ensure these figures are a conservative minimum.
+                        </span>
+                    </p>
                 </div>
             </div>
             
-            <div class="flex flex-wrap items-center gap-3 bg-slate-900/50 p-2 rounded-2xl border border-slate-800">
-                <div class="flex items-center gap-2 px-3 border-r border-slate-800">
-                    <label class="text-[10px] font-black uppercase text-slate-500">Threshold</label>
+            <div class="flex flex-wrap items-center gap-2 bg-slate-900/50 p-2 rounded-2xl border border-slate-800 w-full md:w-auto">
+                <div class="flex flex-grow items-center gap-3 px-3 border-r border-slate-800">
+                    <label class="text-[9px] font-black uppercase text-slate-500 leading-tight">SET MPH<br>THRESHOLD</label>
                     <input type="number" id="threshold" value="30" onchange="renderChart()" 
-                           class="bg-slate-800 w-14 px-1 py-1 rounded-lg border border-slate-700 text-center font-bold text-blue-400 focus:ring-2 focus:ring-blue-500 outline-none">
+                           class="bg-slate-800 w-14 px-1 py-2 rounded-lg border border-slate-700 text-center font-bold text-blue-400 focus:ring-2 focus:ring-blue-500 outline-none">
                 </div>
-                <button onclick="fetchData()" class="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all active:scale-95 flex items-center gap-2">
-                    <span>🔄</span> Refresh Data
+                <button onclick="fetchData()" class="flex-grow md:flex-initial bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 flex items-center justify-center gap-2">
+                    <span>🔄</span> Refresh
                 </button>
             </div>
         </div>
 
-        <div class="mb-8 p-3 bg-slate-900/30 border-l-2 border-slate-700 rounded-r-lg max-w-2xl">
-            <p class="text-[11px] text-slate-400 leading-relaxed italic">
-                <strong>Calibration Note:</strong> All recorded speeds are automatically reduced by <strong>10%</strong>. This safety buffer accounts for potential perspective variance and ensures the data represents a "conservative minimum" speed.
-            </p>
-        </div>
-
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
-                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Observations</p>
-                <p id="stat-total" class="text-3xl font-black text-white mt-1">0</p>
+            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-3xl">
+                <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Total Observations</p>
+                <p id="stat-total" class="text-4xl font-black text-white mt-1">0</p>
             </div>
-            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
-                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Speeding Ratio</p>
-                <p id="stat-pct" class="text-3xl font-black text-red-500 mt-1">0%</p>
+            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-3xl">
+                <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Speeding Ratio</p>
+                <p id="stat-pct" class="text-4xl font-black text-red-500 mt-1">0%</p>
             </div>
-            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-2xl">
-                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Max Speed (Adjusted)</p>
-                <p id="stat-max" class="text-3xl font-black text-blue-400 mt-1">0 <span class="text-xs uppercase font-normal text-slate-500">mph</span></p>
+            <div class="bg-slate-900/40 border border-slate-800 p-6 rounded-3xl">
+                <p class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Top Speed (Adjusted)</p>
+                <p id="stat-max" class="text-4xl font-black text-blue-400 mt-1">0 <span class="text-xs uppercase font-normal text-slate-500">mph</span></p>
             </div>
         </div>
 
-        <div class="flex flex-col lg:flex-row gap-8">
-            <div class="flex flex-row lg:flex-col gap-2 lg:w-56 shrink-0">
-                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn bg-blue-600 text-white text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left transition-all">Full Traffic</button>
-                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all">Speeders Only</button>
-                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all">Normal Flow</button>
+        <div class="flex flex-col lg:flex-row gap-6">
+            <div class="flex flex-row lg:flex-col gap-2 lg:w-56 overflow-x-auto no-scrollbar pb-2 lg:pb-0">
+                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn shrink-0 bg-blue-600 text-white text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left transition-all">Full Traffic</button>
+                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all">Speeders Only</button>
+                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all">Normal Flow</button>
             </div>
 
-            <div class="flex-grow bg-slate-900/40 p-1 rounded-3xl border border-slate-800 shadow-inner">
-                <div class="p-6">
-                    <div class="h-[450px] relative">
+            <div class="flex-grow bg-slate-900/40 p-1 rounded-3xl border border-slate-800 shadow-inner overflow-hidden">
+                <div class="p-4 md:p-6">
+                    <div class="h-[350px] md:h-[450px] relative">
                         <canvas id="trafficChart"></canvas>
                     </div>
                 </div>
 
-                <div class="flex justify-center gap-1 p-2 bg-slate-950/50 rounded-b-3xl border-t border-slate-800 overflow-x-auto">
-                    <button onclick="updateHorizon('hour')" id="hz-hour" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Hour</button>
-                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap">Past 24h</button>
-                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Week</button>
-                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Month</button>
+                <div class="flex justify-start md:justify-center gap-1 p-2 px-4 bg-slate-950/50 rounded-b-3xl border-t border-slate-800 overflow-x-auto no-scrollbar">
+                    <button onclick="updateHorizon('hour')" id="hz-hour" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Hour</button>
+                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap">Past 24h</button>
+                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Week</button>
+                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Month</button>
                 </div>
             </div>
         </div>
+
+        <footer class="mt-12 mb-8 text-center px-4">
+            <div class="h-px w-24 bg-slate-800 mx-auto mb-6"></div>
+            <p class="text-slate-400 text-sm max-w-xl mx-auto leading-relaxed">
+                If the data on this page concerns you, please contact <strong>Trafford Council</strong>. <br class="hidden md:block"> 
+                Ask them why their residents are the ones stuck building custom traffic monitoring systems while they ignore the speeding on our road.
+            </p>
+        </footer>
+
     </div>
 
     <script>
+        // --- 1. FIREBASE CONFIG ---
+        // REPLACE WITH YOUR ACTUAL PROJECT CONFIG
         const firebaseConfig = {
             apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            authDomain: "pi-speedcamera.firebaseapp.com",
             databaseURL: "https://pi-speedcamera-default-rtdb.europe-west1.firebasedatabase.app/",
             projectId: "pi-speedcamera",
             storageBucket: "pi-speedcamera.appspot.com",
@@ -122,7 +132,6 @@
             const now = Math.floor(Date.now() / 1000);
             let binSize, numBins;
 
-            // NEW 5-MINUTE BIN LOGIC
             if (currentHorizon === 'hour') { binSize = 300; numBins = 12; }
             else if (currentHorizon === 'day') { binSize = 3600; numBins = 24; }
             else if (currentHorizon === 'week') { binSize = 21600; numBins = 28; }
@@ -200,7 +209,8 @@
                 data: {
                     labels: bins.map(b => {
                         const date = new Date(b.t*1000);
-                        if (currentHorizon === 'hour' || currentHorizon === 'day') return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                        if (currentHorizon === 'hour') return date.toLocaleTimeString([], {minute:'2-digit'}) + 'm';
+                        if (currentHorizon === 'day') return date.toLocaleTimeString([], {hour: '2-digit'});
                         return date.toLocaleDateString([], {day:'numeric', month:'short'});
                     }),
                     datasets: [
@@ -237,27 +247,27 @@
 
         function fetchData() {
             const btn = document.querySelector('button[onclick="fetchData()"]');
-            btn.innerText = "⌛ Syncing...";
+            btn.innerHTML = "⌛ WAIT";
             db.ref('observations').once('value', (snap) => {
                 const val = snap.val();
                 rawData = val ? Object.values(val) : [];
                 renderChart();
-                btn.innerText = "🔄 Refresh Data";
+                btn.innerHTML = "<span>🔄</span> Refresh";
             });
         }
 
         function updateFilter(f) {
             currentFilter = f;
-            document.querySelectorAll('.filter-btn').forEach(b => b.className = "filter-btn bg-slate-900 text-slate-400 text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all");
+            document.querySelectorAll('.filter-btn').forEach(b => b.className = "filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all");
             const activeId = f === 'non-speeding' ? 'btn-non' : 'btn-' + f;
-            document.getElementById(activeId).className = "filter-btn bg-blue-600 text-white text-xs px-5 py-4 rounded-xl font-black uppercase tracking-widest text-left transition-all";
+            document.getElementById(activeId).className = "filter-btn shrink-0 bg-blue-600 text-white text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left transition-all";
             renderChart();
         }
 
         function updateHorizon(h) {
             currentHorizon = h;
-            document.querySelectorAll('.hz-btn').forEach(b => b.className = "hz-btn text-slate-500 text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap");
-            document.getElementById('hz-' + h).className = "hz-btn bg-slate-800 text-white text-[10px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap";
+            document.querySelectorAll('.hz-btn').forEach(b => b.className = "hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap");
+            document.getElementById('hz-' + h).className = "hz-btn bg-slate-800 text-white text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap";
             renderChart();
         }
 
