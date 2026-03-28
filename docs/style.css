@@ -1,0 +1,38 @@
+body { background-color: #020617; }
+
+/* Custom Scrollbars */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Dashboard Cards */
+.stat-card {
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid #1e293b;
+    padding: 1.5rem;
+    border-radius: 1.5rem;
+}
+.stat-label { font-size: 9px; font-weight: 900; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-value { font-size: 2.25rem; font-weight: 900; margin-top: 0.25rem; }
+
+/* Tooltip & Histogram */
+#chart-tooltip {
+    opacity: 0; position: absolute; background: rgba(15, 23, 42, 0.95); color: white;
+    border-radius: 12px; padding: 16px; pointer-events: none; transition: opacity 0.15s ease;
+    border: 1px solid #334155; z-index: 100; min-width: 200px; backdrop-filter: blur(4px);
+}
+.hist-bar { background: #3b82f6; width: 12px; margin-right: 2px; align-self: flex-end; border-radius: 2px 2px 0 0; }
+.hist-bar.speeding { background: #ef4444; }
+
+/* Buttons */
+.filter-btn {
+    background: #0f172a; color: #94a3b8; font-size: 10px; font-weight: 900; 
+    text-transform: uppercase; padding: 1rem 1.5rem; border-radius: 0.75rem; text-align: left; transition: all 0.2s;
+}
+.filter-btn.active { background: #2563eb; color: white; }
+
+.horizon-picker {
+    display: flex; gap: 0.25rem; padding: 0.5rem 1rem; background: rgba(2, 6, 23, 0.5);
+    border-top: 1px solid #1e293b; overflow-x: auto; justify-content: center;
+}
+.hz-btn { color: #64748b; font-size: 9px; font-weight: 900; text-transform: uppercase; padding: 0.5rem 1.5rem; border-radius: 9999px; }
+.hz-btn.active { background: #1e293b; color: white; }
