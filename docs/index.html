@@ -12,16 +12,19 @@
     <style>
         body { background-color: #020617; }
         #chart-tooltip {
-            opacity: 0; position: absolute; background: rgba(15, 23, 42, 0.95); color: white;
-            border-radius: 12px; padding: 16px; pointer-events: none; transition: opacity 0.15s ease;
+            opacity: 0; position: absolute; background: rgba(15, 23, 42, 0.98); color: white;
+            border-radius: 12px; padding: 16px; pointer-events: none; transition: opacity 0.1s ease;
             border: 1px solid #334155; z-index: 100; min-width: 200px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(4px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
         }
         .hist-bar { background: #3b82f6; width: 14px; margin-right: 3px; align-self: flex-end; border-radius: 2px 2px 0 0; }
         .hist-bar.speeding { background: #ef4444; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .filter-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        .hz-btn { transition: all 0.2s ease; }
     </style>
 </head>
 <body class="text-slate-200 min-h-screen font-sans">
@@ -38,7 +41,7 @@
                 </div>
                 <div class="mt-4 max-w-2xl">
                     <p class="text-slate-300 text-sm leading-relaxed">
-                        This project monitors vehicle speeds and traffic volume on Kings Road. It uses a Raspberry Pi and computer vision to log how many cars pass by and how fast they’re actually going. 
+                        This project monitors vehicle speeds and traffic volume on Kings Road. It uses a Raspberry Pi and computer vision to log volume and real-world velocity.
                         <span class="text-slate-500 italic block mt-1 text-xs font-medium uppercase tracking-wider">
                             Note: All speeds shown are reduced by 10% to ensure these figures are a conservative minimum.
                         </span>
@@ -75,9 +78,9 @@
 
         <div class="flex flex-col lg:flex-row gap-6">
             <div class="flex flex-row lg:flex-col gap-2 lg:w-56 overflow-x-auto no-scrollbar pb-2 lg:pb-0">
-                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn shrink-0 bg-blue-600 text-white text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left transition-all">Full Traffic</button>
-                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all">Speeders Only</button>
-                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all">Normal Flow</button>
+                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn shrink-0 bg-blue-600 text-white text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left">Full Traffic</button>
+                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800">Speeders Only</button>
+                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800">Normal Flow</button>
             </div>
 
             <div class="flex-grow bg-slate-900/40 p-1 rounded-3xl border border-slate-800 shadow-inner overflow-hidden">
@@ -88,19 +91,18 @@
                 </div>
 
                 <div class="flex justify-start md:justify-center gap-1 p-2 px-4 bg-slate-950/50 rounded-b-3xl border-t border-slate-800 overflow-x-auto no-scrollbar">
-                    <button onclick="updateHorizon('hour')" id="hz-hour" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Hour</button>
-                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap">Past 24h</button>
-                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Week</button>
-                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Month</button>
+                    <button onclick="updateHorizon('hour')" id="hz-hour" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white whitespace-nowrap">Past Hour</button>
+                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest whitespace-nowrap">Past 24h</button>
+                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white whitespace-nowrap">Past Week</button>
+                    <button onclick="updateHorizon('month')" id="hz-month" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white whitespace-nowrap">Past Month</button>
                 </div>
             </div>
         </div>
 
-        <footer class="mt-12 mb-8 text-center px-4">
-            <div class="h-px w-24 bg-slate-800 mx-auto mb-6"></div>
-            <p class="text-slate-400 text-sm max-w-xl mx-auto leading-relaxed">
+        <footer class="mt-12 mb-8 text-center px-4 border-t border-slate-900 pt-8">
+            <p class="text-slate-400 text-sm max-w-xl mx-auto leading-relaxed italic">
                 If the data on this page concerns you, please contact <strong>Trafford Council</strong>. <br class="hidden md:block"> 
-                Ask them why their residents are the ones stuck building custom traffic monitoring systems while they ignore the speeding on our road.
+                Ask them why residents are stuck building custom monitoring systems while road safety remains unaddressed.
             </p>
         </footer>
 
@@ -113,9 +115,7 @@
             authDomain: "pi-speedcamera.firebaseapp.com",
             databaseURL: "https://pi-speedcamera-default-rtdb.europe-west1.firebasedatabase.app/",
             projectId: "pi-speedcamera",
-            storageBucket: "pi-speedcamera.appspot.com",
-            messagingSenderId: "...",
-            appId: "..."
+            storageBucket: "pi-speedcamera.appspot.com"
         };
 
         firebase.initializeApp(firebaseConfig);
@@ -145,10 +145,11 @@
             let totalObs = 0, speeders = 0, maxSpeed = 0;
 
             rawData.forEach(obs => {
-                const adjSpeed = obs.speed * 0.9;
+                // MAPPED TO YOUR DB KEYS: 's' for speed, 't' for timestamp
+                const adjSpeed = (obs.s || 0) * 0.9;
                 if (adjSpeed > maxSpeed) maxSpeed = adjSpeed;
 
-                const idx = Math.floor((obs.timestamp - startTime) / binSize);
+                const idx = Math.floor(((obs.t || 0) - startTime) / binSize);
                 if (idx >= 0 && idx < numBins) {
                     totalObs++;
                     if (adjSpeed > threshold) { bins[idx].speeding++; speeders++; } 
@@ -179,17 +180,18 @@
             let histHtml = '<div class="flex items-end h-16 mt-4 mb-2 border-b border-slate-700/50">';
             counts.forEach((c, i) => {
                 const h = (c/max) * 100;
-                const isSpeeding = (i === 0 ? 10 : ranges[i-1]) >= threshold;
-                histHtml += `<div class="hist-bar ${isSpeeding ? 'speeding' : 'bg-blue-500/50'}" style="height:${h}%"></div>`;
+                const binSpeed = i === 0 ? 10 : ranges[i-1];
+                const isSpeeding = binSpeed >= threshold;
+                histHtml += `<div class="hist-bar ${isSpeeding ? 'speeding' : ''}" style="height:${h}%"></div>`;
             });
             histHtml += '</div>';
 
             return `
-                <div class="text-[10px] font-black text-slate-500 uppercase tracking-tighter">${new Date(bin.t * 1000).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                <div class="text-[10px] font-black text-slate-500 uppercase tracking-tighter">${new Date(bin.t * 1000).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}</div>
                 <div class="text-3xl font-black text-white mt-1">${total} <span class="text-[10px] text-slate-500">CARS</span></div>
                 <div class="flex items-center gap-2 mt-1">
-                    <div class="h-2 w-2 rounded-full ${pct > 30 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
-                    <span class="text-xs font-black uppercase ${pct > 30 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeders</span>
+                    <div class="h-2 w-2 rounded-full ${pct > 25 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
+                    <span class="text-xs font-black uppercase ${pct > 25 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeding</span>
                 </div>
                 ${histHtml}
                 <div class="flex justify-between text-[8px] font-black text-slate-600 uppercase tracking-widest">
@@ -219,6 +221,7 @@
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
                     plugins: { 
                         legend: { display: false },
                         tooltip: {
@@ -226,13 +229,15 @@
                             external: function(context) {
                                 const tooltipEl = document.getElementById('chart-tooltip');
                                 if (context.tooltip.opacity === 0) { tooltipEl.style.opacity = 0; return; }
+                                
                                 const binIdx = context.tooltip.dataPoints[0].dataIndex;
                                 tooltipEl.innerHTML = getTooltipHtml(bins[binIdx]);
+                                
                                 const position = context.chart.canvas.getBoundingClientRect();
                                 tooltipEl.style.opacity = 1;
-                                tooltipEl.style.left = position.left + window.pageXOffset + context.tooltip.caretX + 'px';
-                                tooltipEl.style.top = position.top + window.pageYOffset + context.tooltip.caretY + 'px';
-                                tooltipEl.style.transform = 'translate(-50%, -115%)'; 
+                                tooltipEl.style.left = (position.left + window.pageXOffset + context.tooltip.caretX) + 'px';
+                                tooltipEl.style.top = (position.top + window.pageYOffset + context.tooltip.caretY - 20) + 'px';
+                                tooltipEl.style.transform = 'translate(-50%, -100%)'; 
                             }
                         }
                     },
@@ -246,8 +251,9 @@
 
         function fetchData() {
             const btn = document.querySelector('button[onclick="fetchData()"]');
-            btn.innerHTML = "⌛ WAIT";
-            db.ref('observations').once('value', (snap) => {
+            btn.innerHTML = "⌛ LOADING";
+            // limitToLast(2000) keeps it performant
+            db.ref('observations').limitToLast(2000).once('value', (snap) => {
                 const val = snap.val();
                 rawData = val ? Object.values(val) : [];
                 renderChart();
@@ -257,16 +263,26 @@
 
         function updateFilter(f) {
             currentFilter = f;
-            document.querySelectorAll('.filter-btn').forEach(b => b.className = "filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all");
+            document.querySelectorAll('.filter-btn').forEach(b => {
+                b.classList.remove('bg-blue-600', 'text-white');
+                b.classList.add('bg-slate-900', 'text-slate-400');
+            });
             const activeId = f === 'non-speeding' ? 'btn-non' : 'btn-' + f;
-            document.getElementById(activeId).className = "filter-btn shrink-0 bg-blue-600 text-white text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left transition-all";
+            const activeBtn = document.getElementById(activeId);
+            activeBtn.classList.remove('bg-slate-900', 'text-slate-400');
+            activeBtn.classList.add('bg-blue-600', 'text-white');
             renderChart();
         }
 
         function updateHorizon(h) {
             currentHorizon = h;
-            document.querySelectorAll('.hz-btn').forEach(b => b.className = "hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap");
-            document.getElementById('hz-' + h).className = "hz-btn bg-slate-800 text-white text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap";
+            document.querySelectorAll('.hz-btn').forEach(b => {
+                b.classList.remove('bg-slate-800', 'text-white');
+                b.classList.add('text-slate-500');
+            });
+            const activeBtn = document.getElementById('hz-' + h);
+            activeBtn.classList.remove('text-slate-500');
+            activeBtn.classList.add('bg-slate-800', 'text-white');
             renderChart();
         }
 
