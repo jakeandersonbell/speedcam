@@ -10,7 +10,31 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
-    <link rel="stylesheet" href="style.css">
+    <style>
+        body { background-color: #020617; }
+        .stat-card { @apply bg-slate-900/50 border border-slate-800 p-6 rounded-3xl backdrop-blur-md; }
+        .stat-label { @apply text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1; }
+        .stat-value { @apply text-4xl font-black tracking-tighter; }
+        
+        .filter-btn { @apply shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800 transition-all; }
+        .filter-btn.active { @apply bg-blue-600 text-white; }
+        
+        .hz-btn { @apply text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap; }
+        .hz-btn.active { @apply bg-slate-800 text-white; }
+
+        .horizon-picker { @apply flex gap-2 p-4 overflow-x-auto border-t border-slate-800/50 bg-slate-950/50; }
+        
+        #chart-tooltip {
+            @apply absolute opacity-0 pointer-events-none bg-slate-900/95 border border-slate-700 p-4 rounded-2xl shadow-2xl backdrop-blur-xl z-50 transition-opacity duration-200 min-w-[180px];
+        }
+
+        .hist-bar { @apply w-full mx-[1px] rounded-t-sm transition-all duration-500; }
+        .hist-bar.speeding { @apply bg-red-500/80; }
+        
+        /* Hide scrollbar */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
 </head>
 <body class="text-slate-200 min-h-screen font-sans">
 
@@ -24,13 +48,14 @@
                     <h1 class="text-2xl md:text-4xl font-black tracking-tighter text-white uppercase italic">Kings Road Traffic Feed</h1>
                 </div>
                 <p class="mt-4 max-w-2xl text-slate-300 text-sm leading-relaxed">
-                    Computer vision monitoring. All speeds reduced by 10% for conservative reporting.
+                    Computer vision monitoring via Raspberry Pi. <br>
+                    <span class="text-blue-400 font-bold">Note:</span> All speeds reduced by 10% for conservative reporting.
                 </p>
             </div>
             
             <div class="flex flex-wrap items-center gap-2 bg-slate-900/50 p-2 rounded-2xl border border-slate-800 w-full md:w-auto">
                 <div class="flex flex-grow items-center gap-3 px-3 border-r border-slate-800">
-                    <label class="text-[9px] font-black uppercase text-slate-500">LIMIT (MPH)</label>
+                    <label class="text-[9px] font-black uppercase text-slate-500">LIMIT</label>
                     <input type="number" id="threshold" value="30" onchange="renderChart()" 
                            class="bg-slate-800 w-14 px-1 py-2 rounded-lg border border-slate-700 text-center font-bold text-blue-400 outline-none">
                 </div>
@@ -46,7 +71,7 @@
                 <p id="stat-total" class="stat-value text-white">0</p>
             </div>
             <div class="stat-card">
-                <p id="stat-pct-label" class="stat-label">Speeding Ratio</p>
+                <p class="stat-label">Speeding Ratio</p>
                 <p id="stat-pct" class="stat-value text-red-500">0%</p>
             </div>
             <div class="stat-card">
@@ -62,7 +87,7 @@
                 <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn">Normal Flow</button>
             </nav>
 
-            <div class="flex-grow bg-slate-900/40 p-1 rounded-3xl border border-slate-800 overflow-hidden">
+            <div class="flex-grow bg-slate-900/40 rounded-3xl border border-slate-800 overflow-hidden">
                 <div class="p-4 md:p-6 h-[350px] md:h-[450px]">
                     <canvas id="trafficChart"></canvas>
                 </div>
@@ -75,10 +100,179 @@
         </main>
 
         <footer class="mt-12 text-center italic text-slate-500 text-sm">
-            Please contact Trafford Council regarding road safety on Kings Road.
+            Community Speed Watch Initiative. Please contact Trafford Council regarding safety on Kings Road.
         </footer>
     </div>
 
-    <script src="app.js"></script>
+    <script>
+        // --- 1. FIREBASE CONFIG ---
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY", // Replace this with your key from Project Settings
+            authDomain: "pi-speedcamera.firebaseapp.com",
+            databaseURL: "https://pi-speedcamera-default-rtdb.europe-west1.firebasedatabase.app/",
+            projectId: "pi-speedcamera",
+            storageBucket: "pi-speedcamera.appspot.com"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let rawData = [];
+        let currentFilter = 'all';
+        let currentHorizon = 'day';
+        let chart;
+
+        function processBins() {
+            const threshold = parseInt(document.getElementById('threshold').value);
+            const now = Math.floor(Date.now() / 1000);
+            let binSize, numBins;
+
+            if (currentHorizon === 'hour') { binSize = 300; numBins = 12; }
+            else if (currentHorizon === 'day') { binSize = 3600; numBins = 24; }
+            else if (currentHorizon === 'week') { binSize = 21600; numBins = 28; }
+            else { binSize = 86400; numBins = 30; }
+
+            const startTime = now - (numBins * binSize);
+            const bins = Array.from({length: numBins}, (_, i) => ({
+                t: startTime + (i * binSize),
+                speeding: 0, normal: 0, speeds: []
+            }));
+
+            let totalObs = 0, speeders = 0, maxSpeed = 0;
+
+            rawData.forEach(obs => {
+                // IMPORTANT: Using 's' and 't' to match your Python script
+                const adjSpeed = obs.s * 0.9; 
+                if (adjSpeed > maxSpeed) maxSpeed = adjSpeed;
+
+                const idx = Math.floor((obs.t - startTime) / binSize);
+                if (idx >= 0 && idx < numBins) {
+                    totalObs++;
+                    if (adjSpeed > threshold) { bins[idx].speeding++; speeders++; } 
+                    else { bins[idx].normal++; }
+                    bins[idx].speeds.push(adjSpeed);
+                }
+            });
+
+            document.getElementById('stat-total').innerText = totalObs.toLocaleString();
+            document.getElementById('stat-pct').innerText = totalObs > 0 ? ((speeders/totalObs)*100).toFixed(1) + '%' : '0%';
+            document.getElementById('stat-max').innerText = maxSpeed.toFixed(1);
+
+            return bins;
+        }
+
+        const getTooltipHtml = (bin) => {
+            const threshold = parseInt(document.getElementById('threshold').value);
+            const total = bin.speeding + bin.normal;
+            const pct = total > 0 ? ((bin.speeding/total)*100).toFixed(0) : 0;
+            
+            const ranges = [20, 25, 30, 35, 40, 99];
+            const counts = [0,0,0,0,0,0];
+            bin.speeds.forEach(s => {
+                for(let i=0; i<ranges.length; i++) { if(s < ranges[i]) { counts[i]++; break; } }
+            });
+            const max = Math.max(...counts) || 1;
+
+            let histHtml = '<div class="flex items-end h-16 mt-4 mb-2 border-b border-slate-700/50">';
+            counts.forEach((c, i) => {
+                const h = (c/max) * 100;
+                const speedVal = (i === 0 ? 10 : ranges[i-1]);
+                const isSpeeding = speedVal >= threshold;
+                histHtml += `<div class="hist-bar ${isSpeeding ? 'speeding' : 'bg-blue-500/50'}" style="height:${h}%"></div>`;
+            });
+            histHtml += '</div>';
+
+            return `
+                <div class="text-[10px] font-black text-slate-500 uppercase tracking-tighter">
+                    ${new Date(bin.t * 1000).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div class="text-3xl font-black text-white mt-1">${total} <span class="text-[10px] text-slate-500">CARS</span></div>
+                <div class="flex items-center gap-2 mt-1">
+                    <div class="h-2 w-2 rounded-full ${pct > 30 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
+                    <span class="text-xs font-black uppercase ${pct > 30 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeding</span>
+                </div>
+                ${histHtml}
+                <div class="flex justify-between text-[8px] font-black text-slate-600 uppercase tracking-widest">
+                    <span>10mph</span><span>25</span><span>40+</span>
+                </div>
+            `;
+        };
+
+        function renderChart() {
+            const bins = processBins();
+            const ctx = document.getElementById('trafficChart').getContext('2d');
+            
+            if (chart) chart.destroy();
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: bins.map(b => {
+                        const date = new Date(b.t*1000);
+                        if (currentHorizon === 'hour') return date.toLocaleTimeString([], {minute:'2-digit'}) + 'm';
+                        if (currentHorizon === 'day') return date.toLocaleTimeString([], {hour: '2-digit'});
+                        return date.toLocaleDateString([], {day:'numeric', month:'short'});
+                    }),
+                    datasets: [
+                        { label: 'Speeding', data: bins.map(b => b.speeding), backgroundColor: '#ef4444', hidden: currentFilter === 'non-speeding', stack: 'a', borderRadius: 4 },
+                        { label: 'Normal', data: bins.map(b => b.normal), backgroundColor: '#1e293b', hidden: currentFilter === 'speeding', stack: 'a', borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            enabled: false,
+                            external: function(context) {
+                                const tooltipEl = document.getElementById('chart-tooltip');
+                                if (context.tooltip.opacity === 0) { tooltipEl.style.opacity = 0; return; }
+                                const binIdx = context.tooltip.dataPoints[0].dataIndex;
+                                tooltipEl.innerHTML = getTooltipHtml(bins[binIdx]);
+                                const position = context.chart.canvas.getBoundingClientRect();
+                                tooltipEl.style.opacity = 1;
+                                tooltipEl.style.left = position.left + window.pageXOffset + context.tooltip.caretX + 'px';
+                                tooltipEl.style.top = position.top + window.pageYOffset + context.tooltip.caretY + 'px';
+                                tooltipEl.style.transform = 'translate(-50%, -115%)'; 
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { stacked: true, grid: { display: false }, ticks: { color: '#475569', font: { size: 9, weight: '900' } } },
+                        y: { stacked: true, grid: { color: '#0f172a' }, ticks: { color: '#475569', font: { weight: 'bold' } } }
+                    }
+                }
+            });
+        }
+
+        function fetchData() {
+            const btn = document.querySelector('button[onclick="fetchData()"]');
+            btn.innerHTML = "⌛ LOADING";
+            
+            // Limit to last 2000 records to keep dashboard snappy
+            db.ref('observations').limitToLast(2000).once('value', (snap) => {
+                const val = snap.val();
+                rawData = val ? Object.values(val) : [];
+                renderChart();
+                btn.innerHTML = "🔄 Refresh";
+            });
+        }
+
+        function updateFilter(f) {
+            currentFilter = f;
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            const activeId = f === 'non-speeding' ? 'btn-non' : 'btn-' + f;
+            document.getElementById(activeId).classList.add('active');
+            renderChart();
+        }
+
+        function updateHorizon(h) {
+            currentHorizon = h;
+            document.querySelectorAll('.hz-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('hz-' + h).classList.add('active');
+            renderChart();
+        }
+
+        fetchData();
+    </script>
 </body>
 </html>
