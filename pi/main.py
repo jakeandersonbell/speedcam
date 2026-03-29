@@ -1,6 +1,6 @@
-import cv2, time, collections, subprocess, numpy as np, os, threading
+import cv2, time, collections, subprocess, numpy as np, os, threading, requests
 from pi.config import *
-from pi.firebase_utils import upload_observation
+from pi.firebase_utils import upload_observation, upload_env_data
 
 # --- INITIALISATION ---
 roi_mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
@@ -10,110 +10,120 @@ fgbg = cv2.createBackgroundSubtractorMOG2(history=800, varThreshold=100, detectS
 hw_history = collections.deque(maxlen=RATIO_HISTORY_SIZE)
 last_clocked_times = {'near': 0, 'far': 0}
 
-def get_rain_offset():
-    """ Lifts tracking points if reflections are present (M16 can be wet!). """
-    if len(hw_history) < 5: return 0
-    avg_ratio = np.median(hw_history)
-    return int((avg_ratio - DRY_HW_RATIO) * 80) if avg_ratio > DRY_HW_RATIO else 0
+class EnvironmentMonitor:
+    def __init__(self):
+        self.brightness_samples = []
+        self.is_sampling = False
 
-def get_blobs_as_instances(frame):
-    masked = cv2.bitwise_and(frame, frame, mask=roi_mask)
-    fgmask = fgbg.apply(masked)
-    kernel = np.ones((5,5), np.uint8)
-    fgmask = cv2.dilate(fgmask, kernel, iterations=3)
-    _, thresh = cv2.threshold(fgmask, 200, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    instances = []
-    for cnt in contours:
-        if cv2.contourArea(cnt) > MIN_AREA:
-            x, y, w, h = cv2.boundingRect(cnt)
-            instances.append({'center': (x + w//2, y + h//2), 'w': w, 'h': h, 'ratio': h / w})
-    return instances
+    def get_weather(self):
+        """ Fetch real-time precipitation for Stretford via wttr.in """
+        try:
+            # format=j1 returns clean JSON
+            r = requests.get("https://wttr.in/Stretford?format=j1", timeout=10).json()
+            curr = r['current_condition'][0]
+            return {
+                "rain": float(curr.get('precipMM', 0)),
+                "temp": float(curr.get('temp_C', 0)),
+                "cloud": int(curr.get('cloudcover', 0)),
+                "cond": curr.get('weatherDesc', [{}])[0].get('value', 'clear')
+            }
+        except Exception as e:
+            print(f"⚠️ Weather Error: {e}")
+            return {"rain": 0, "temp": 0, "cloud": 0, "cond": "unknown"}
 
-def analyse_event(frames_with_times, ts):
-    global last_clocked_times, hw_history
-    active_tracks = [] 
+    def log_environment(self):
+        if not self.brightness_samples: return
+        avg_light = np.mean(self.brightness_samples)
+        w = self.get_weather()
+        
+        data = {
+            "t": int(time.time()),
+            "lux": round(avg_light, 2),
+            "rain": w['rain'],
+            "temp": w['temp'],
+            "cloud": w['cloud'],
+            "cond": w['cond']
+        }
+        threading.Thread(target=upload_env_data, args=(data,)).start()
+        print(f"☁️ ENV LOG: Light {avg_light:.1f} | Rain {w['rain']}mm | {w['cond']}")
+        self.brightness_samples = []
+
+    def start_window(self):
+        print("🕒 Research: Starting 60s Light/Weather sample...")
+        self.is_sampling = True
+        threading.Timer(60, self.stop_window).start()
+
+    def stop_window(self):
+        self.is_sampling = False
+        self.log_environment()
+
+env_monitor = EnvironmentMonitor()
+
+def analyse_event(frames_with_times):
+    global last_clocked_times
+    tracks = [] 
 
     for frame, arrival_time in frames_with_times:
-        current_blobs = get_blobs_as_instances(frame)
-        for blob in current_blobs:
-            matched = False
-            for track in active_tracks:
-                lx, ly, _ = track['points'][-1]
-                # Frame-to-frame distance check (95px)
-                if np.sqrt((blob['center'][0]-lx)**2 + (blob['center'][1]-ly)**2) < 95:
-                    track['points'].append((blob['center'][0], blob['center'][1], arrival_time))
-                    track['widths'].append(blob['w'])
-                    track['ratios'].append(blob['ratio'])
-                    matched = True
-                    break
-            if not matched:
-                active_tracks.append({
-                    'points': [(blob['center'][0], blob['center'][1], arrival_time)], 
-                    'widths': [blob['w']], 
-                    'ratios': [blob['ratio']]
-                })
+        # Get blobs
+        masked = cv2.bitwise_and(frame, frame, mask=roi_mask)
+        fg = fgbg.apply(masked)
+        _, thr = cv2.threshold(cv2.dilate(fg, np.ones((5,5), np.uint8), iterations=3), 200, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thr, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        for cnt in contours:
+            if cv2.contourArea(cnt) > MIN_AREA:
+                x, y, w, h = cv2.boundingRect(cnt)
+                cx, cy = x + w//2, y + h//2
+                matched = False
+                for t in tracks:
+                    lx, ly, _ = t['p'][-1]
+                    if np.sqrt((cx-lx)**2 + (cy-ly)**2) < 95:
+                        t['p'].append((cx, cy, arrival_time))
+                        t['w'].append(w)
+                        t['r'].append(h/w)
+                        matched = True
+                        break
+                if not matched:
+                    tracks.append({'p': [(cx, cy, arrival_time)], 'w': [w], 'r': [h/w]})
 
-    for car in active_tracks:
-        path = car['points']
+    for car in tracks:
+        path = car['p']
         if len(path) < MIN_POINTS_FOR_TRACK: continue
 
-        # --- NEW LANE LOGIC: DIRECTION OVER WIDTH ---
-        dx_total = path[-1][0] - path[0][0] # Final X minus Starting X
-        
-        # If DX is positive, car moved Left -> Right (Near Lane in M16)
-        # If DX is negative, car moved Right -> Left (Far Lane)
-        # Adjust 'near' vs 'far' if your camera is mounted the other way!
+        # DIRECTIONAL LANE LOGIC
+        dx_total = path[-1][0] - path[0][0]
         lane = 'near' if dx_total > 0 else 'far'
         
-        # We still keep width for the Firebase logs to track vehicle size
-        median_w = np.median(car['widths'])
-        
-        # Avoid double-clocking the same car in high-speed frames
         if time.time() - last_clocked_times[lane] < 0.4: continue
-
-        # Apply lane-specific calibration (Meters Per Pixel)
-        offset = get_rain_offset()
-        mpp = MPP_NEAR if lane == 'near' else MPP_FAR
         
+        mpp = MPP_NEAR if lane == 'near' else MPP_FAR
         speeds = []
         for i in range(len(path) - 1):
-            dx = path[i+1][0] - path[i][0]
-            dt = path[i+1][2] - path[i][2]
-            if abs(dx) > 2 and dt > 0:
-                # Speed = (Pixels * MetersPerPixel / Time) * ConversionToMPH
-                speeds.append((abs(dx) * mpp / dt) * 2.237)
+            dx, dt = abs(path[i+1][0] - path[i][0]), path[i+1][2] - path[i][2]
+            if dx > 2 and dt > 0:
+                speeds.append((dx * mpp / dt) * 2.237)
 
         if not speeds: continue
-        final_speed, std_dev = np.median(speeds), np.std(speeds)
+        final_speed = np.median(speeds)
 
-        # Sanity Filters
-        if not (MIN_PLAUSIBLE_SPEED < final_speed < MAX_PLAUSIBLE_SPEED): continue
-        if std_dev > MAX_VARIANCE: continue
-        # Ignore "ghosts" that didn't travel at least 25% of the screen width
-        if abs(dx_total) < (WIDTH * 0.25): continue 
+        if MIN_PLAUSIBLE_SPEED < final_speed < MAX_PLAUSIBLE_SPEED and abs(dx_total) > (WIDTH * 0.25):
+            last_clocked_times[lane] = time.time()
+            hw_history.append(np.median(car['r']))
+            threading.Thread(target=upload_observation, args=(lane, round(final_speed,1), int(np.median(car['w'])), round(np.mean(hw_history),2))).start()
+            print(f"🎯 {lane.upper()}: {final_speed:.1f} MPH")
 
-        # Success! 
-        last_clocked_times[lane] = time.time()
-        hw_history.append(np.median(car['ratios']))
+def schedule_env():
+    env_monitor.start_window()
+    threading.Timer(1800, schedule_env).start()
 
-        # Threaded Cloud Sync - Keeps the capture loop fast
-        threading.Thread(
-            target=upload_observation, 
-            args=(lane, round(final_speed, 1), int(median_w), round(np.mean(hw_history), 2), "")
-        ).start()
-        
-        print(f"🎯 {lane.upper()} ({'L->R' if dx_total > 0 else 'R->L'}): {final_speed:.1f} MPH | w:{int(median_w)}")
-
-# --- MAIN CAPTURE LOOP ---
-# Using rpicam-vid for high-efficiency YUV capture
+# --- MAIN LOOP ---
 cmd = ['rpicam-vid', '-t', '0', '--width', str(WIDTH), '--height', str(HEIGHT), '--nopreview', '--codec', 'yuv420', '--framerate', '30', '-o', '-']
 pipe = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=FRAME_SIZE * 30)
 rolling_buffer = collections.deque(maxlen=PRE_ROLL)
-is_recording, last_trigger, frame_count = False, 0, 0
+is_recording, frame_count = False, 0
 
-print(f"📡 Stretford Radar v9.3 [Directional Vector Update] Active.")
+print(f"📡 Stretford Radar v10.1 [wttr.in edition] Active.")
+schedule_env()
 
 try:
     while True:
@@ -121,26 +131,24 @@ try:
         if len(raw) != FRAME_SIZE: continue 
         frame_count += 1
         
-        # Process every 2nd frame to save CPU on the Pi
         if frame_count % 2 == 0:
             yuv = np.frombuffer(raw, dtype=np.uint8).reshape((int(HEIGHT * 1.5), WIDTH))
             frame = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
             now = time.time()
-            frame_data = (frame, now)
-            rolling_buffer.append(frame_data)
+            rolling_buffer.append((frame, now))
             
-            # Simple Motion Trigger
+            if env_monitor.is_sampling and frame_count % 60 == 0:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                env_monitor.brightness_samples.append(cv2.mean(gray, mask=roi_mask)[0])
+
             mask = fgbg.apply(cv2.bitwise_and(frame, frame, mask=roi_mask))
-            score = np.sum(cv2.threshold(mask, 250, 255, cv2.THRESH_BINARY)[1]) // 255
-            
-            if score > MOTION_THRESHOLD and not is_recording and (now - last_trigger) > TRIGGER_COOLDOWN:
-                is_recording, last_trigger, event_buffer = True, now, list(rolling_buffer)
+            if np.sum(cv2.threshold(mask, 250, 255, cv2.THRESH_BINARY)[1]) // 255 > MOTION_THRESHOLD and not is_recording:
+                is_recording, event_buffer = True, list(rolling_buffer)
 
             if is_recording:
-                event_buffer.append(frame_data)
+                event_buffer.append((frame, now))
                 if len(event_buffer) >= (PRE_ROLL + POST_ROLL):
-                    threading.Thread(target=analyse_event, args=(list(event_buffer), ""), daemon=True).start()
-                    is_recording, event_buffer = False, []
+                    threading.Thread(target=analyse_event, args=(list(event_buffer),), daemon=True).start()
+                    is_recording = False
 except KeyboardInterrupt:
-    print("\n🛑 Shutting down gracefully...")
     pipe.terminate()
