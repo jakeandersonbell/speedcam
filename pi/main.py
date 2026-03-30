@@ -1,6 +1,6 @@
 import cv2, time, collections, subprocess, numpy as np, os, threading, requests
 from pi.config import *
-from pi.firebase_utils import upload_observation, upload_env_data
+from pi.supabase_utils import upload_observation, upload_env_data
 
 # --- INITIALISATION ---
 roi_mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
