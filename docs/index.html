@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kings Road Traffic Feed | M16</title>
+    <title>Kings Road Traffic Feed | M16 Radar</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -40,9 +40,9 @@
                 </div>
                 <div class="mt-4 max-w-2xl">
                     <p class="text-slate-300 text-sm leading-relaxed">
-                        Monitoring vehicle speeds on Kings Road, M16. Data is captured via Raspberry Pi and analyzed in real-time.
+                        Live speed analysis for Kings Road, Stretford. 
                         <span class="text-slate-500 italic block mt-1 text-xs font-medium uppercase tracking-wider">
-                            Note: All speeds shown are reduced by 10% to ensure these figures are a conservative minimum.
+                            Real-time data synced to BST. Conservative 10% speed reduction applied.
                         </span>
                     </p>
                 </div>
@@ -96,18 +96,19 @@
 
         <footer class="mt-12 mb-8 text-center px-4">
             <div class="h-px w-24 bg-slate-800 mx-auto mb-6"></div>
-            <p class="text-slate-400 text-sm max-w-xl mx-auto leading-relaxed">
-                Data provided by the Stretford Traffic Study. <br class="hidden md:block"> 
-                Highlighting road safety issues through local observation and technology.
+            <p class="text-slate-400 text-xs max-w-xl mx-auto leading-relaxed">
+                Kings Road Radar Project. Data provided for traffic awareness only.
             </p>
         </footer>
     </div>
 
     <script>
-        // --- 1. SUPABASE INITIALIZATION ---
+        // --- 1. CONFIGURATION ---
         const SUPABASE_URL = "https://your-project-id.supabase.co";
         const SUPABASE_ANON_KEY = "your-public-anon-key";
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Renaming to 'db' to avoid library name collision
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let rawData = [];
         let currentFilter = 'all';
@@ -116,7 +117,8 @@
 
         function processBins() {
             const threshold = parseInt(document.getElementById('threshold').value);
-            const now = Math.floor(Date.now() / 1000);
+            // JS handles the current time in the local timezone (BST)
+            const now = Math.floor(Date.now() / 1000); 
             let binSize, numBins;
 
             if (currentHorizon === 'hour') { binSize = 300; numBins = 12; }
@@ -133,11 +135,12 @@
             let totalObs = 0, speeders = 0, maxSpeed = 0;
 
             rawData.forEach(obs => {
-                // Map new descriptive columns
                 const adjSpeed = (obs.speed_mph || 0) * 0.9;
-                const unixTime = Math.floor(new Date(obs.captured_at).getTime() / 1000);
-
                 if (adjSpeed > maxSpeed) maxSpeed = adjSpeed;
+
+                // BST Magic: new Date(obs.captured_at) interprets the UTC string and 
+                // converts it to the user's local Unix timestamp automatically.
+                const unixTime = Math.floor(new Date(obs.captured_at).getTime() / 1000);
 
                 const idx = Math.floor((unixTime - startTime) / binSize);
                 if (idx >= 0 && idx < numBins) {
@@ -206,6 +209,7 @@
                     labels: bins.map(b => {
                         const date = new Date(b.t*1000);
                         if (currentHorizon === 'hour') return date.toLocaleTimeString([], {minute:'2-digit'}) + 'm';
+                        // Displays the hour in local BST automatically
                         if (currentHorizon === 'day') return date.toLocaleTimeString([], {hour: '2-digit'});
                         return date.toLocaleDateString([], {day:'numeric', month:'short'});
                     }),
@@ -246,15 +250,16 @@
             const btn = document.querySelector('button[onclick="fetchData()"]');
             btn.innerHTML = "⌛ WAIT";
 
-            // Calculate cutoff based on horizon to save bandwidth
             const now = new Date();
             let hoursBack = 24;
             if (currentHorizon === 'hour') hoursBack = 1;
             if (currentHorizon === 'week') hoursBack = 168;
+            
+            // We fetch relative to the current UTC time
             const cutoff = new Date(now.getTime() - (hoursBack * 60 * 60 * 1000)).toISOString();
 
             try {
-                const { data, error } = await supabase
+                const { data, error } = await db
                     .from('observations')
                     .select('speed_mph, captured_at')
                     .gt('captured_at', cutoff)
@@ -265,7 +270,7 @@
                 rawData = data || [];
                 renderChart();
             } catch (err) {
-                console.error("Supabase Error:", err);
+                console.error("Fetch Error:", err);
             } finally {
                 btn.innerHTML = "🔄 Refresh";
             }
@@ -289,10 +294,20 @@
                 b.classList.add('text-slate-500');
             });
             document.getElementById('hz-' + h).classList.add('bg-slate-800', 'text-white');
-            fetchData(); // Refetch data when time horizon changes
+            fetchData();
         }
 
+        // Initialize
         fetchData();
+
+        // Optional: Real-time listener if you enabled replication in Supabase Dashboard
+        db.channel('realtime_observations')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'observations' }, payload => {
+            console.log("New car detected live!");
+            fetchData(); 
+          })
+          .subscribe();
+
     </script>
 </body>
 </html>
