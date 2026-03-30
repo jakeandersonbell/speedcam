@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kings Road Traffic Feed</title>
+    <title>Kings Road Traffic Feed | Stretford Radar</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -77,19 +77,15 @@
 
         <main class="flex flex-col lg:flex-row gap-6">
             <nav class="flex flex-row lg:flex-col gap-2 lg:w-56 overflow-x-auto no-scrollbar">
-                <button onclick="updateFilter('all')" id="btn-all" class="filter-btn active shrink-0 bg-blue-600 text-white text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left">Full Traffic</button>
-                <button onclick="updateFilter('speeding')" id="btn-speeding" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800">Speeders Only</button>
-                <button onclick="updateFilter('non-speeding')" id="btn-non" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800">Normal Flow</button>
+                <button onclick="updateHorizon('5min')" id="hz-5min" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800">Live (5 Min)</button>
+                <button onclick="updateHorizon('hour')" id="hz-hour" class="filter-btn shrink-0 bg-blue-600 text-white text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left">Hourly</button>
+                <button onclick="updateHorizon('6hour')" id="hz-6hour" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800">6-Hour Blocks</button>
+                <button onclick="updateHorizon('day')" id="hz-day" class="filter-btn shrink-0 bg-slate-900 text-slate-400 text-[10px] px-6 py-4 rounded-xl font-black uppercase tracking-widest text-left hover:bg-slate-800">Daily (Monthly)</button>
             </nav>
 
             <div class="flex-grow bg-slate-900/40 p-1 rounded-3xl border border-slate-800 shadow-inner overflow-hidden">
                 <div class="p-4 md:p-6 h-[350px] md:h-[450px] relative">
                     <canvas id="trafficChart"></canvas>
-                </div>
-                <div class="flex justify-start md:justify-center gap-1 p-2 px-4 bg-slate-950/50 rounded-b-3xl border-t border-slate-800 overflow-x-auto no-scrollbar">
-                    <button onclick="updateHorizon('hour')" id="hz-hour" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Hour</button>
-                    <button onclick="updateHorizon('day')" id="hz-day" class="hz-btn bg-slate-800 text-white text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest transition whitespace-nowrap">Past 24h</button>
-                    <button onclick="updateHorizon('week')" id="hz-week" class="hz-btn text-slate-500 text-[9px] px-6 py-2 rounded-full font-black uppercase tracking-widest hover:text-white transition whitespace-nowrap">Past Week</button>
                 </div>
             </div>
         </main>
@@ -104,118 +100,74 @@
     </div>
 
     <script>
-        // --- 1. SUPABASE CONFIG ---
-        const SUPABASE_URL = "https://dahskjveppeniyyuuuos.supabase.co";
-        const SUPABASE_KEY = "sb_publishable_-q_g4hdktoRHS_V9kPeRDA_5GIy19AR";
-        
-        // Use 'supa' to avoid conflict with the global 'supabase' library object
+        // --- 1. SUPABASE INITIALIZATION ---
+        const SUPABASE_URL = "https://your-project-id.supabase.co";
+        const SUPABASE_KEY = "your-public-anon-key";
         const supa = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        let rawData = [];
-        let currentFilter = 'all';
-        let currentHorizon = 'day';
+        let chartData = [];
+        let currentHorizon = 'hour';
         let chart;
 
-        function processBins() {
-            const threshold = parseInt(document.getElementById('threshold').value);
-            const now = Math.floor(Date.now() / 1000); // Unix seconds in local time
-            let binSize, numBins;
-
-            if (currentHorizon === 'hour') { binSize = 300; numBins = 12; }
-            else if (currentHorizon === 'day') { binSize = 3600; numBins = 24; }
-            else if (currentHorizon === 'week') { binSize = 21600; numBins = 28; }
-            else { binSize = 86400; numBins = 30; }
-
-            const startTime = now - (numBins * binSize);
-            const bins = Array.from({length: numBins}, (_, i) => ({
-                t: startTime + (i * binSize),
-                speeding: 0, normal: 0, speeds: []
-            }));
-
-            let totalObs = 0, speeders = 0, maxSpeed = 0;
-
-            rawData.forEach(obs => {
-                // NEW: Using descriptive column names
-                const adjSpeed = (obs.speed_mph || 0) * 0.9;
-                if (adjSpeed > maxSpeed) maxSpeed = adjSpeed;
-
-                // NEW: Converting ISO string from Supabase to Unix Seconds
-                // The browser's Date object handles the BST offset automatically
-                const unixTime = Math.floor(new Date(obs.captured_at).getTime() / 1000);
-
-                const idx = Math.floor((unixTime - startTime) / binSize);
-                if (idx >= 0 && idx < numBins) {
-                    totalObs++;
-                    if (adjSpeed > threshold) { bins[idx].speeding++; speeders++; } 
-                    else { bins[idx].normal++; }
-                    bins[idx].speeds.push(adjSpeed);
-                }
-            });
-
-            document.getElementById('stat-total').innerText = totalObs.toLocaleString();
-            document.getElementById('stat-pct').innerText = totalObs > 0 ? ((speeders/totalObs)*100).toFixed(1) + '%' : '0%';
-            document.getElementById('stat-max').innerText = maxSpeed.toFixed(1);
-
-            return bins;
-        }
-
+        // --- 2. TOOLTIP HISTOGRAM LOGIC ---
         const getTooltipHtml = (bin) => {
-            const threshold = parseInt(document.getElementById('threshold').value);
-            const total = bin.speeding + bin.normal;
-            const pct = total > 0 ? ((bin.speeding/total)*100).toFixed(0) : 0;
-            const ranges = [20, 25, 30, 35, 40, 999];
-            const labels = ["<20", "20", "25", "30", "35", "40+"];
-            const counts = [0, 0, 0, 0, 0, 0];
-
-            bin.speeds.forEach(s => {
-                for(let i=0; i<ranges.length; i++) { 
-                    if(s < ranges[i]) { counts[i]++; break; } 
-                }
-            });
+            const counts = [bin.cat_tiny, bin.cat_low, bin.cat_med, bin.cat_high, bin.cat_fast, bin.cat_extreme];
             const max = Math.max(...counts) || 1;
+            const pct = bin.total_cars > 0 ? ((bin.speeding_cars/bin.total_cars)*100).toFixed(0) : 0;
+            const threshold = parseInt(document.getElementById('threshold').value);
 
             let histHtml = '<div class="hist-container border-b border-slate-700/50">';
             counts.forEach((c, i) => {
                 const h = (c/max) * 100;
-                const binFloor = i === 0 ? 0 : ranges[i-1]; 
-                const isSpeedingBin = binFloor >= threshold;
-                histHtml += `<div class="hist-bar ${isSpeedingBin ? 'speeding' : ''}" style="height:${h}%"></div>`;
+                // Visualization logic for the tooltip bars
+                const barSpeeds = [0, 20, 25, 30, 35, 40];
+                const isSpeedingBar = barSpeeds[i] >= threshold;
+                histHtml += `<div class="hist-bar ${isSpeedingBar ? 'speeding' : ''}" style="height:${h}%"></div>`;
             });
             histHtml += '</div>';
 
-            let labelHtml = '<div class="label-grid text-[8px] font-black text-slate-600 uppercase tracking-tighter">';
-            labels.forEach(l => labelHtml += `<span>${l}</span>`);
-            labelHtml += '</div>';
-
             return `
-                <div class="text-[10px] font-black text-slate-500 uppercase tracking-tighter mb-1">
-                    ${new Date(bin.t * 1000).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                <div class="text-[10px] font-black text-slate-500 mb-1 uppercase">
+                    ${new Date(bin.bucket).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                 </div>
-                <div class="text-3xl font-black text-white">${total} <span class="text-[10px] text-slate-500">CARS</span></div>
+                <div class="text-3xl font-black text-white">${bin.total_cars} <span class="text-[10px] text-slate-500">CARS</span></div>
                 <div class="flex items-center gap-2 mt-1">
                     <div class="h-2 w-2 rounded-full ${pct > 25 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
                     <span class="text-[11px] font-black uppercase ${pct > 25 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeders</span>
                 </div>
-                ${histHtml}${labelHtml}
+                ${histHtml}
+                <div class="label-grid text-[8px] font-black text-slate-600 uppercase">
+                    <span><20</span><span>20</span><span>25</span><span>30</span><span>35</span><span>40+</span>
+                </div>
             `;
         };
 
+        // --- 3. CHART RENDERING ---
         function renderChart() {
-            const bins = processBins();
             const ctx = document.getElementById('trafficChart').getContext('2d');
             if (chart) chart.destroy();
+
+            // Aggregate stats for the top cards
+            const totalObs = chartData.reduce((a, b) => a + b.total_cars, 0);
+            const totalSpeeders = chartData.reduce((a, b) => a + b.speeding_cars, 0);
+            const maxSpeed = Math.max(...chartData.map(b => b.top_speed), 0);
+
+            document.getElementById('stat-total').innerText = totalObs.toLocaleString();
+            document.getElementById('stat-pct').innerText = totalObs > 0 ? ((totalSpeeders/totalObs)*100).toFixed(1) + '%' : '0%';
+            document.getElementById('stat-max').innerText = maxSpeed.toFixed(1);
+
             chart = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: bins.map(b => {
-                        const date = new Date(b.t*1000);
-                        if (currentHorizon === 'hour') return date.toLocaleTimeString([], {minute:'2-digit'}) + 'm';
-                        if (currentHorizon === 'day') return date.toLocaleTimeString([], {hour: '2-digit'});
-                        return date.toLocaleDateString([], {day:'numeric', month:'short'});
+                    labels: chartData.map(b => {
+                        const d = new Date(b.bucket);
+                        if (currentHorizon === '5min') return d.toLocaleTimeString([], {minute:'2-digit'}) + 'm';
+                        if (currentHorizon === 'day') return d.toLocaleDateString([], {day:'numeric', month:'short'});
+                        return d.toLocaleTimeString([], {hour: '2-digit'});
                     }),
                     datasets: [
-                        { label: 'Speeding', data: bins.map(b => b.speeding), backgroundColor: '#ef4444', hidden: currentFilter === 'non-speeding', stack: 'a', borderRadius: 4 },
-                        { label: 'Normal', data: bins.map(b => b.normal), backgroundColor: '#1e293b', hidden: currentFilter === 'speeding', stack: 'a', borderRadius: 4 }
+                        { label: 'Speeding', data: chartData.map(b => b.speeding_cars), backgroundColor: '#ef4444', stack: 'a', borderRadius: 4 },
+                        { label: 'Normal', data: chartData.map(b => b.total_cars - b.speeding_cars), backgroundColor: '#1e293b', stack: 'a', borderRadius: 4 }
                     ]
                 },
                 options: {
@@ -228,8 +180,8 @@
                             external: function(context) {
                                 const tooltipEl = document.getElementById('chart-tooltip');
                                 if (context.tooltip.opacity === 0) { tooltipEl.style.opacity = 0; return; }
-                                const binIdx = context.tooltip.dataPoints[0].dataIndex;
-                                tooltipEl.innerHTML = getTooltipHtml(bins[binIdx]);
+                                const idx = context.tooltip.dataPoints[0].dataIndex;
+                                tooltipEl.innerHTML = getTooltipHtml(chartData[idx]);
                                 const position = context.chart.canvas.getBoundingClientRect();
                                 tooltipEl.style.opacity = 1;
                                 tooltipEl.style.left = (position.left + window.pageXOffset + context.tooltip.caretX) + 'px';
@@ -246,63 +198,47 @@
             });
         }
 
+        // --- 4. DATA FETCHING ---
         async function fetchData() {
             const btn = document.querySelector('button[onclick="fetchData()"]');
             btn.innerHTML = "⌛ WAIT";
 
-            // Efficiency: Only fetch data for the current time horizon
-            const now = new Date();
-            let hoursBack = 24;
-            if (currentHorizon === 'hour') hoursBack = 1;
-            if (currentHorizon === 'week') hoursBack = 168;
-            const cutoff = new Date(now.getTime() - (hoursBack * 60 * 60 * 1000)).toISOString();
+            let tableName = 'traffic_hourly'; 
+            let limitCount = 24; 
+
+            if (currentHorizon === '5min') { tableName = 'traffic_5min'; limitCount = 12; } 
+            else if (currentHorizon === '6hour') { tableName = 'traffic_6hour'; limitCount = 28; } 
+            else if (currentHorizon === 'day') { tableName = 'traffic_daily'; limitCount = 31; }
 
             try {
                 const { data, error } = await supa
-                    .from('observations')
-                    .select('speed_mph, captured_at')
-                    .gt('captured_at', cutoff)
-                    .order('captured_at', { ascending: false })
-                    .limit(5000);
+                    .from(tableName)
+                    .select('*')
+                    .limit(limitCount);
 
                 if (error) throw error;
-                rawData = data || [];
+                chartData = data.reverse(); 
                 renderChart();
             } catch (err) {
-                console.error("Supabase Error:", err.message);
+                console.error("Aggregation Error:", err.message);
             } finally {
                 btn.innerHTML = "🔄 Refresh";
             }
         }
 
-        function updateFilter(f) {
-            currentFilter = f;
+        // --- 5. UI CONTROLS ---
+        function updateHorizon(h) {
+            currentHorizon = h;
             document.querySelectorAll('.filter-btn').forEach(b => {
                 b.classList.remove('bg-blue-600', 'text-white');
                 b.classList.add('bg-slate-900', 'text-slate-400');
             });
-            const activeId = f === 'non-speeding' ? 'btn-non' : 'btn-' + f;
-            document.getElementById(activeId).classList.add('bg-blue-600', 'text-white');
-            renderChart();
-        }
-
-        function updateHorizon(h) {
-            currentHorizon = h;
-            document.querySelectorAll('.hz-btn').forEach(b => {
-                b.classList.remove('bg-slate-800', 'text-white');
-                b.classList.add('text-slate-500');
-            });
-            document.getElementById('hz-' + h).classList.add('bg-slate-800', 'text-white');
+            document.getElementById('hz-' + h).classList.add('bg-blue-600', 'text-white');
             fetchData();
         }
 
-        // Live Real-time Listener
-        supa.channel('room1')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'observations' }, payload => {
-                console.log('New vehicle logged!');
-                fetchData();
-            })
-            .subscribe();
+        // Auto-refresh every 60 seconds
+        setInterval(fetchData, 60000);
 
         fetchData();
     </script>
