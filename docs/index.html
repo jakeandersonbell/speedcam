@@ -208,14 +208,16 @@
                 const { data, error } = await supa
                     .from(view)
                     .select('*')
-                    // EXPLICIT ORDER: Get newest first from DB
+                    // 1. Get the NEWEST data from the DB first
                     .order('bucket', { ascending: false }) 
                     .limit(limit);
 
                 if (error) throw error;
                 
-                // REVERSE: Put newest on the RIGHT for the chart
-                chartData = data.reverse(); 
+                // 2. Flip the array so the OLDER data is index[0] (Left) 
+                // and NEWER data is the last index (Right)
+                chartData = data.sort((a, b) => new Date(a.bucket) - new Date(b.bucket));
+                
                 renderChart();
             } catch (err) {
                 console.error(err);
