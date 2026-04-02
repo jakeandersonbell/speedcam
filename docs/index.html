@@ -99,161 +99,165 @@
         </footer>
     </div>
         <script>
-        // --- 1. SUPABASE INITIALIZATION ---
-        const SUPABASE_URL = "https://dahskjveppeniyyuuuos.supabase.co";
-        const SUPABASE_KEY = "sb_publishable_-q_g4hdktoRHS_V9kPeRDA_5GIy19AR";
-        const supa = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            const SUPABASE_URL = "https://dahskjveppeniyyuuuos.supabase.co";
+            const SUPABASE_KEY = "sb_publishable_-q_g4hdktoRHS_V9kPeRDA_5GIy19AR";
+            const supa = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        let chartData = [];
-        let currentHorizon = 'hour';
-        let chart;
+            let chartData = [];
+            let currentHorizon = 'hour';
+            let chart;
 
-        // --- 1.5 THE "UNIVERSAL" DATE FIXER ---
-        // This handles the space, the T, the Z, and forces London time.
-        const parseAndFormat = (rawStr, options) => {
-            if (!rawStr) return "";
-            // 1. Clean the string: replace space with 'T' and ensure it ends with 'Z' (UTC)
-            const cleanStr = rawStr.replace(' ', 'T').split('+')[0].split('Z')[0] + 'Z';
-            const dateObj = new Date(cleanStr);
-            
-            // 2. Return formatted string in UK time (handles GMT/BST automatically)
-            return new Intl.DateTimeFormat('en-GB', {
-                ...options,
-                timeZone: 'Europe/London'
-            }).format(dateObj);
-        };
-
-        // --- 2. TOOLTIP HISTOGRAM LOGIC ---
-        const getTooltipHtml = (bin) => {
-            const counts = [bin.cat_tiny, bin.cat_low, bin.cat_med, bin.cat_high, bin.cat_fast, bin.cat_extreme];
-            const max = Math.max(...counts) || 1;
-            const pct = bin.total_cars > 0 ? ((bin.speeding_cars/bin.total_cars)*100).toFixed(0) : 0;
-            const threshold = parseInt(document.getElementById('threshold').value);
-
-            const formattedDate = parseAndFormat(bin.bucket, { 
-                day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false 
-            });
-
-            let histHtml = '<div class="hist-container border-b border-slate-700/50">';
-            counts.forEach((c, i) => {
-                const h = (c/max) * 100;
-                const barSpeeds = [0, 20, 25, 30, 35, 40];
-                const isSpeedingBar = barSpeeds[i] >= threshold;
-                histHtml += `<div class="hist-bar ${isSpeedingBar ? 'speeding' : ''}" style="height:${h}%"></div>`;
-            });
-            histHtml += '</div>';
-
-            return `
-                <div class="text-[10px] font-black text-slate-500 mb-1 uppercase">${formattedDate}</div>
-                <div class="text-3xl font-black text-white">${bin.total_cars} <span class="text-[10px] text-slate-500">CARS</span></div>
-                <div class="flex items-center gap-2 mt-1">
-                    <div class="h-2 w-2 rounded-full ${pct > 25 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
-                    <span class="text-[11px] font-black uppercase ${pct > 25 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeders</span>
-                </div>
-                ${histHtml}
-                <div class="label-grid text-[8px] font-black text-slate-600 uppercase">
-                    <span><20</span><span>20</span><span>25</span><span>30</span><span>35</span><span>40+</span>
-                </div>
-            `;
-        };
-
-        // --- 3. CHART RENDERING ---
-        function renderChart() {
-            const canvas = document.getElementById('trafficChart');
-            const ctx = canvas.getContext('2d'); // Redefined ctx to avoid ReferenceError
-            
-            if (chart) chart.destroy();
-
-            const totalObs = chartData.reduce((a, b) => a + b.total_cars, 0);
-            const totalSpeeders = chartData.reduce((a, b) => a + b.speeding_cars, 0);
-            const maxSpeed = Math.max(...chartData.map(b => b.top_speed), 0);
-
-            document.getElementById('stat-total').innerText = totalObs.toLocaleString();
-            document.getElementById('stat-pct').innerText = totalObs > 0 ? ((totalSpeeders/totalObs)*100).toFixed(1) + '%' : '0%';
-            document.getElementById('stat-max').innerText = maxSpeed.toFixed(1);
-
-            chart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: chartData.map(b => {
-                        if (currentHorizon === '5min') return parseAndFormat(b.bucket, { minute: '2-digit' }) + 'm';
-                        if (currentHorizon === 'day') return parseAndFormat(b.bucket, { day: 'numeric', month: 'short' });
-                        return parseAndFormat(b.bucket, { hour: '2-digit', hour12: false });
-                    }),
-                    datasets: [
-                        { label: 'Speeding', data: chartData.map(b => b.speeding_cars), backgroundColor: '#ef4444', stack: 'a', borderRadius: 4 },
-                        { label: 'Normal', data: chartData.map(b => b.total_cars - b.speeding_cars), backgroundColor: '#1e293b', stack: 'a', borderRadius: 4 }
-                    ]
-                },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: { 
-                        legend: { display: false },
-                        tooltip: {
-                            enabled: false,
-                            external: function(context) {
-                                const tooltipEl = document.getElementById('chart-tooltip');
-                                if (context.tooltip.opacity === 0) { tooltipEl.style.opacity = 0; return; }
-                                const idx = context.tooltip.dataPoints[0].dataIndex;
-                                tooltipEl.innerHTML = getTooltipHtml(chartData[idx]);
-                                const position = context.chart.canvas.getBoundingClientRect();
-                                tooltipEl.style.opacity = 1;
-                                tooltipEl.style.left = (position.left + window.pageXOffset + context.tooltip.caretX) + 'px';
-                                tooltipEl.style.top = (position.top + window.pageYOffset + context.tooltip.caretY - 20) + 'px';
-                                tooltipEl.style.transform = 'translate(-50%, -100%)'; 
-                            }
-                        }
-                    },
-                    scales: {
-                        x: { stacked: true, grid: { display: false }, ticks: { color: '#475569', font: { size: 9, weight: '900' } } },
-                        y: { stacked: true, grid: { color: '#0f172a' }, ticks: { color: '#475569', font: { weight: 'bold' } } }
-                    }
-                }
-            });
-        }
-
-        // --- 4. DATA FETCHING ---
-        async function fetchData() {
-            let view = 'traffic_hourly', limit = 24; 
-            if (currentHorizon === '5min') { view = 'traffic_5min'; limit = 12; } 
-            else if (currentHorizon === 'day') { view = 'traffic_daily'; limit = 31; }
-
-            try {
-                const { data, error } = await supa
-                    .from(view)
-                    .select('*')
-                    .order('bucket', { ascending: false }) 
-                    .limit(limit);
-
-                if (error) throw error;
+            // --- 1. THE FOOLPROOF DATE PARSER ---
+            const toBST = (rawStr, options) => {
+                if (!rawStr) return "";
                 
-                // SORT FIX: Convert to time numbers to ensure Chronological order (Oldest Left -> Newest Right)
-                chartData = data.sort((a, b) => {
-                    const timeA = new Date(a.bucket.replace(' ', 'T') + 'Z').getTime();
-                    const timeB = new Date(b.bucket.replace(' ', 'T') + 'Z').getTime();
-                    return timeA - timeB;
+                // Step 1: Clean the string. 
+                // Remove any existing +00, Z, or trailing decimals, then force a 'T' and a 'Z'
+                // This turns "2026-04-02 15:20:00+00" into "2026-04-02T15:20:00Z"
+                const isoStr = rawStr.replace(' ', 'T').split('.')[0].split('+')[0].split('Z')[0] + 'Z';
+                const d = new Date(isoStr);
+
+                // Step 2: If the date is invalid, return a placeholder
+                if (isNaN(d.getTime())) return "??:??";
+
+                // Step 3: Use Intl to force the display into London time (BST)
+                return new Intl.DateTimeFormat('en-GB', {
+                    ...options,
+                    timeZone: 'Europe/London'
+                }).format(d);
+            };
+
+            // --- 2. TOOLTIP ---
+            const getTooltipHtml = (bin) => {
+                const counts = [bin.cat_tiny, bin.cat_low, bin.cat_med, bin.cat_high, bin.cat_fast, bin.cat_extreme];
+                const max = Math.max(...counts) || 1;
+                const pct = bin.total_cars > 0 ? ((bin.speeding_cars/bin.total_cars)*100).toFixed(0) : 0;
+                const threshold = parseInt(document.getElementById('threshold').value);
+
+                // Header time
+                const formattedDate = toBST(bin.bucket, { 
+                    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false 
                 });
-                
-                renderChart();
-            } catch (err) {
-                console.error("Fetch Error:", err);
+
+                let histHtml = '<div class="hist-container border-b border-slate-700/50">';
+                counts.forEach((c, i) => {
+                    const h = (c/max) * 100;
+                    const barSpeeds = [0, 20, 25, 30, 35, 40];
+                    const isSpeedingBar = barSpeeds[i] >= threshold;
+                    histHtml += `<div class="hist-bar ${isSpeedingBar ? 'speeding' : ''}" style="height:${h}%"></div>`;
+                });
+                histHtml += '</div>';
+
+                return `
+                    <div class="text-[10px] font-black text-slate-500 mb-1 uppercase">${formattedDate}</div>
+                    <div class="text-3xl font-black text-white">${bin.total_cars} <span class="text-[10px] text-slate-500">CARS</span></div>
+                    <div class="flex items-center gap-2 mt-1">
+                        <div class="h-2 w-2 rounded-full ${pct > 25 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
+                        <span class="text-[11px] font-black uppercase ${pct > 25 ? 'text-red-500' : 'text-green-500'}">${pct}% Speeders</span>
+                    </div>
+                    ${histHtml}
+                    <div class="label-grid text-[8px] font-black text-slate-600 uppercase">
+                        <span><20</span><span>20</span><span>25</span><span>30</span><span>35</span><span>40+</span>
+                    </div>
+                `;
+            };
+
+            // --- 3. RENDER ---
+            function renderChart() {
+                const canvas = document.getElementById('trafficChart');
+                const ctx = canvas.getContext('2d');
+                if (chart) chart.destroy();
+
+                const totalObs = chartData.reduce((a, b) => a + b.total_cars, 0);
+                const totalSpeeders = chartData.reduce((a, b) => a + b.speeding_cars, 0);
+                const maxSpeed = Math.max(...chartData.map(b => b.top_speed), 0);
+
+                document.getElementById('stat-total').innerText = totalObs.toLocaleString();
+                document.getElementById('stat-pct').innerText = totalObs > 0 ? ((totalSpeeders/totalObs)*100).toFixed(1) + '%' : '0%';
+                document.getElementById('stat-max').innerText = maxSpeed.toFixed(1);
+
+                chart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: chartData.map(b => {
+                            if (currentHorizon === '5min') return toBST(b.bucket, { minute: '2-digit' }) + 'm';
+                            if (currentHorizon === 'day') return toBST(b.bucket, { day: 'numeric', month: 'short' });
+                            return toBST(b.bucket, { hour: '2-digit', hour12: false });
+                        }),
+                        datasets: [
+                            { label: 'Speeding', data: chartData.map(b => b.speeding_cars), backgroundColor: '#ef4444', stack: 'a', borderRadius: 4 },
+                            { label: 'Normal', data: chartData.map(b => b.total_cars - b.speeding_cars), backgroundColor: '#1e293b', stack: 'a', borderRadius: 4 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: { 
+                            legend: { display: false },
+                            tooltip: {
+                                enabled: false,
+                                external: function(context) {
+                                    const tooltipEl = document.getElementById('chart-tooltip');
+                                    if (context.tooltip.opacity === 0) { tooltipEl.style.opacity = 0; return; }
+                                    const idx = context.tooltip.dataPoints[0].dataIndex;
+                                    tooltipEl.innerHTML = getTooltipHtml(chartData[idx]);
+                                    const position = context.chart.canvas.getBoundingClientRect();
+                                    tooltipEl.style.opacity = 1;
+                                    tooltipEl.style.left = (position.left + window.pageXOffset + context.tooltip.caretX) + 'px';
+                                    tooltipEl.style.top = (position.top + window.pageYOffset + context.tooltip.caretY - 20) + 'px';
+                                    tooltipEl.style.transform = 'translate(-50%, -100%)'; 
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { stacked: true, grid: { display: false }, ticks: { color: '#475569', font: { size: 9, weight: '900' } } },
+                            y: { stacked: true, grid: { color: '#0f172a' }, ticks: { color: '#475569', font: { weight: 'bold' } } }
+                        }
+                    }
+                });
             }
-        }
 
-        // --- 5. UI CONTROLS ---
-        function updateHorizon(h) {
-            currentHorizon = h;
-            document.querySelectorAll('.filter-btn').forEach(b => {
-                b.classList.remove('bg-blue-600', 'text-white');
-                b.classList.add('bg-slate-900', 'text-slate-400');
-            });
-            document.getElementById('hz-' + h).classList.add('bg-blue-600', 'text-white');
+            // --- 4. FETCH ---
+            async function fetchData() {
+                let view = 'traffic_hourly', limit = 24; 
+                if (currentHorizon === '5min') { view = 'traffic_5min'; limit = 12; } 
+                else if (currentHorizon === 'day') { view = 'traffic_daily'; limit = 31; }
+
+                try {
+                    const { data, error } = await supa
+                        .from(view)
+                        .select('*')
+                        .order('bucket', { ascending: false }) 
+                        .limit(limit);
+
+                    if (error) throw error;
+                    
+                    // THE CRITICAL SORT FIX:
+                    // Convert to a proper UTC Date object before subtracting for the sort
+                    chartData = data.sort((a, b) => {
+                        const dateA = new Date(a.bucket.replace(' ', 'T').split('+')[0] + 'Z');
+                        const dateB = new Date(b.bucket.replace(' ', 'T').split('+')[0] + 'Z');
+                        return dateA - dateB; 
+                    });
+                    
+                    renderChart();
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+
+            function updateHorizon(h) {
+                currentHorizon = h;
+                document.querySelectorAll('.filter-btn').forEach(b => {
+                    b.classList.remove('bg-blue-600', 'text-white');
+                    b.classList.add('bg-slate-900', 'text-slate-400');
+                });
+                document.getElementById('hz-' + h).classList.add('bg-blue-600', 'text-white');
+                fetchData();
+            }
+
+            setInterval(fetchData, 60000);
             fetchData();
-        }
-
-        setInterval(fetchData, 60000);
-        fetchData();
-    </script>
+        </script>
 </body>
 </html>
