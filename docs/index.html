@@ -109,6 +109,19 @@
         let currentHorizon = 'hour';
         let chart;
 
+        // --- 1.5 TIMEZONE HELPER ---
+        // This forces the date to display in UK time, regardless of browser settings
+        const ukFormat = (dateInput, options) => {
+            // Ensure we treat the raw string as UTC first
+            const dateStr = typeof dateInput === 'string' ? dateInput.replace(' ', 'T') : dateInput;
+            const d = new Date(dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z');
+            
+            return new Intl.DateTimeFormat('en-GB', {
+                ...options,
+                timeZone: 'Europe/London'
+            }).format(d);
+        };
+
         // --- 2. TOOLTIP HISTOGRAM LOGIC ---
         const getTooltipHtml = (bin) => {
             const counts = [bin.cat_tiny, bin.cat_low, bin.cat_med, bin.cat_high, bin.cat_fast, bin.cat_extreme];
@@ -116,11 +129,10 @@
             const pct = bin.total_cars > 0 ? ((bin.speeding_cars/bin.total_cars)*100).toFixed(0) : 0;
             const threshold = parseInt(document.getElementById('threshold').value);
 
-            // BULLETPROOF DATE PARSING:
-            // 1. Replace space with 'T' (ISO standard)
-            // 2. Ensure it ends with 'Z' if no timezone is present to force UTC
-            const dateStr = bin.bucket.replace(' ', 'T');
-            const dateObj = new Date(dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z');
+            // FIX: Use the UK helper
+            const formattedDate = ukFormat(bin.bucket, { 
+                day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false 
+            });
 
             let histHtml = '<div class="hist-container border-b border-slate-700/50">';
             counts.forEach((c, i) => {
@@ -132,9 +144,7 @@
             histHtml += '</div>';
 
             return `
-                <div class="text-[10px] font-black text-slate-500 mb-1 uppercase">
-                    ${isNaN(dateObj) ? 'Date Error' : dateObj.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })}
-                </div>
+                <div class="text-[10px] font-black text-slate-500 mb-1 uppercase">${formattedDate}</div>
                 <div class="text-3xl font-black text-white">${bin.total_cars} <span class="text-[10px] text-slate-500">CARS</span></div>
                 <div class="flex items-center gap-2 mt-1">
                     <div class="h-2 w-2 rounded-full ${pct > 25 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}"></div>
@@ -149,29 +159,16 @@
 
         // --- 3. CHART RENDERING ---
         function renderChart() {
-            const ctx = document.getElementById('trafficChart').getContext('2d');
-            if (chart) chart.destroy();
-
-            const totalObs = chartData.reduce((a, b) => a + b.total_cars, 0);
-            const totalSpeeders = chartData.reduce((a, b) => a + b.speeding_cars, 0);
-            const maxSpeed = Math.max(...chartData.map(b => b.top_speed), 0);
-
-            document.getElementById('stat-total').innerText = totalObs.toLocaleString();
-            document.getElementById('stat-pct').innerText = totalObs > 0 ? ((totalSpeeders/totalObs)*100).toFixed(1) + '%' : '0%';
-            document.getElementById('stat-max').innerText = maxSpeed.toFixed(1);
+            // ... (keep your stats aggregation logic here) ...
 
             chart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: chartData.map(b => {
-                        // APPLY SAME FIX HERE
-                        const s = b.bucket.replace(' ', 'T');
-                        const d = new Date(s.includes('Z') || s.includes('+') ? s : s + 'Z');
-                        
-                        if (isNaN(d)) return "??";
-                        if (currentHorizon === '5min') return d.toLocaleTimeString([], {minute:'2-digit'}) + 'm';
-                        if (currentHorizon === 'day') return d.toLocaleDateString([], {day:'numeric', month:'short'});
-                        return d.toLocaleTimeString([], {hour: '2-digit', hour12: false});
+                        // FIX: Use UK helper for X-axis labels
+                        if (currentHorizon === '5min') return ukFormat(b.bucket, { minute: '2-digit' }) + 'm';
+                        if (currentHorizon === 'day') return ukFormat(b.bucket, { day: 'numeric', month: 'short' });
+                        return ukFormat(b.bucket, { hour: '2-digit', hour12: false });
                     }),
                     datasets: [
                         { label: 'Speeding', data: chartData.map(b => b.speeding_cars), backgroundColor: '#ef4444', stack: 'a', borderRadius: 4 },
