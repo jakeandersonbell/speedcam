@@ -116,8 +116,11 @@
             const pct = bin.total_cars > 0 ? ((bin.speeding_cars/bin.total_cars)*100).toFixed(0) : 0;
             const threshold = parseInt(document.getElementById('threshold').value);
 
-            // FIX: Force UTC interpretation by ensuring 'Z' suffix
-            const dateObj = new Date(bin.bucket.includes('Z') ? bin.bucket : bin.bucket + 'Z');
+            // BULLETPROOF DATE PARSING:
+            // 1. Replace space with 'T' (ISO standard)
+            // 2. Ensure it ends with 'Z' if no timezone is present to force UTC
+            const dateStr = bin.bucket.replace(' ', 'T');
+            const dateObj = new Date(dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z');
 
             let histHtml = '<div class="hist-container border-b border-slate-700/50">';
             counts.forEach((c, i) => {
@@ -130,7 +133,7 @@
 
             return `
                 <div class="text-[10px] font-black text-slate-500 mb-1 uppercase">
-                    ${dateObj.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })}
+                    ${isNaN(dateObj) ? 'Date Error' : dateObj.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })}
                 </div>
                 <div class="text-3xl font-black text-white">${bin.total_cars} <span class="text-[10px] text-slate-500">CARS</span></div>
                 <div class="flex items-center gap-2 mt-1">
@@ -161,10 +164,12 @@
                 type: 'bar',
                 data: {
                     labels: chartData.map(b => {
-                        // FIX: Ensure the browser treats the bucket as UTC
-                        const d = new Date(b.bucket.includes('Z') ? b.bucket : b.bucket + 'Z');
+                        // APPLY SAME FIX HERE
+                        const s = b.bucket.replace(' ', 'T');
+                        const d = new Date(s.includes('Z') || s.includes('+') ? s : s + 'Z');
                         
-                        if (currentHorizon === '5min') return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
+                        if (isNaN(d)) return "??";
+                        if (currentHorizon === '5min') return d.toLocaleTimeString([], {minute:'2-digit'}) + 'm';
                         if (currentHorizon === 'day') return d.toLocaleDateString([], {day:'numeric', month:'short'});
                         return d.toLocaleTimeString([], {hour: '2-digit', hour12: false});
                     }),
