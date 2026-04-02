@@ -108,25 +108,19 @@
         let currentHorizon = 'hour';
         let chart;
 
-        // --- 1.5 TIMEZONE HELPER ---
-        // This forces the date to display in UK time, regardless of browser/OS settings
-        const ukFormat = (dateInput, options) => {
-            if (!dateInput) return "";
-            // 1. Ensure ISO format (replace space with T)
-            // 2. Ensure 'Z' suffix to tell the browser the source is UTC
-            const dateStr = typeof dateInput === 'string' ? dateInput.replace(' ', 'T') : dateInput;
-            const d = new Date(dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z');
+        // --- 1.5 THE "UNIVERSAL" DATE FIXER ---
+        // This handles the space, the T, the Z, and forces London time.
+        const parseAndFormat = (rawStr, options) => {
+            if (!rawStr) return "";
+            // 1. Clean the string: replace space with 'T' and ensure it ends with 'Z' (UTC)
+            const cleanStr = rawStr.replace(' ', 'T').split('+')[0].split('Z')[0] + 'Z';
+            const dateObj = new Date(cleanStr);
             
-            // 3. Explicitly format for London timezone
-            try {
-                return new Intl.DateTimeFormat('en-GB', {
-                    ...options,
-                    timeZone: 'Europe/London'
-                }).format(d);
-            } catch (e) {
-                console.error("Date formatting error:", e);
-                return "??:??";
-            }
+            // 2. Return formatted string in UK time (handles GMT/BST automatically)
+            return new Intl.DateTimeFormat('en-GB', {
+                ...options,
+                timeZone: 'Europe/London'
+            }).format(dateObj);
         };
 
         // --- 2. TOOLTIP HISTOGRAM LOGIC ---
@@ -136,8 +130,7 @@
             const pct = bin.total_cars > 0 ? ((bin.speeding_cars/bin.total_cars)*100).toFixed(0) : 0;
             const threshold = parseInt(document.getElementById('threshold').value);
 
-            // Uses the UK helper for the tooltip header
-            const formattedDate = ukFormat(bin.bucket, { 
+            const formattedDate = parseAndFormat(bin.bucket, { 
                 day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false 
             });
 
@@ -167,12 +160,10 @@
         // --- 3. CHART RENDERING ---
         function renderChart() {
             const canvas = document.getElementById('trafficChart');
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d'); // Redefined ctx to avoid ReferenceError
             
             if (chart) chart.destroy();
 
-            // Aggregate stats for the top cards
             const totalObs = chartData.reduce((a, b) => a + b.total_cars, 0);
             const totalSpeeders = chartData.reduce((a, b) => a + b.speeding_cars, 0);
             const maxSpeed = Math.max(...chartData.map(b => b.top_speed), 0);
@@ -185,10 +176,9 @@
                 type: 'bar',
                 data: {
                     labels: chartData.map(b => {
-                        // Force X-axis labels into UK Time
-                        if (currentHorizon === '5min') return ukFormat(b.bucket, { minute: '2-digit' }) + 'm';
-                        if (currentHorizon === 'day') return ukFormat(b.bucket, { day: 'numeric', month: 'short' });
-                        return ukFormat(b.bucket, { hour: '2-digit', hour12: false });
+                        if (currentHorizon === '5min') return parseAndFormat(b.bucket, { minute: '2-digit' }) + 'm';
+                        if (currentHorizon === 'day') return parseAndFormat(b.bucket, { day: 'numeric', month: 'short' });
+                        return parseAndFormat(b.bucket, { hour: '2-digit', hour12: false });
                     }),
                     datasets: [
                         { label: 'Speeding', data: chartData.map(b => b.speeding_cars), backgroundColor: '#ef4444', stack: 'a', borderRadius: 4 },
@@ -196,8 +186,7 @@
                     ]
                 },
                 options: {
-                    responsive: true, 
-                    maintainAspectRatio: false,
+                    responsive: true, maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
                         legend: { display: false },
@@ -239,16 +228,16 @@
 
                 if (error) throw error;
                 
-                // Sort data so time flows Left -> Right
+                // SORT FIX: Convert to time numbers to ensure Chronological order (Oldest Left -> Newest Right)
                 chartData = data.sort((a, b) => {
-                    const da = new Date(a.bucket.replace(' ', 'T') + 'Z');
-                    const db = new Date(b.bucket.replace(' ', 'T') + 'Z');
-                    return da - db;
+                    const timeA = new Date(a.bucket.replace(' ', 'T') + 'Z').getTime();
+                    const timeB = new Date(b.bucket.replace(' ', 'T') + 'Z').getTime();
+                    return timeA - timeB;
                 });
                 
                 renderChart();
             } catch (err) {
-                console.error("Fetch error:", err);
+                console.error("Fetch Error:", err);
             }
         }
 
@@ -263,10 +252,7 @@
             fetchData();
         }
 
-        // Auto-refresh every 60 seconds
         setInterval(fetchData, 60000);
-
-        // Initial load
         fetchData();
     </script>
 </body>
