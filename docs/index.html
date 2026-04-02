@@ -98,8 +98,7 @@
             </p>
         </footer>
     </div>
-
-    <script>
+        <script>
         // --- 1. SUPABASE INITIALIZATION ---
         const SUPABASE_URL = "https://dahskjveppeniyyuuuos.supabase.co";
         const SUPABASE_KEY = "sb_publishable_-q_g4hdktoRHS_V9kPeRDA_5GIy19AR";
@@ -110,16 +109,24 @@
         let chart;
 
         // --- 1.5 TIMEZONE HELPER ---
-        // This forces the date to display in UK time, regardless of browser settings
+        // This forces the date to display in UK time, regardless of browser/OS settings
         const ukFormat = (dateInput, options) => {
-            // Ensure we treat the raw string as UTC first
+            if (!dateInput) return "";
+            // 1. Ensure ISO format (replace space with T)
+            // 2. Ensure 'Z' suffix to tell the browser the source is UTC
             const dateStr = typeof dateInput === 'string' ? dateInput.replace(' ', 'T') : dateInput;
             const d = new Date(dateStr.includes('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z');
             
-            return new Intl.DateTimeFormat('en-GB', {
-                ...options,
-                timeZone: 'Europe/London'
-            }).format(d);
+            // 3. Explicitly format for London timezone
+            try {
+                return new Intl.DateTimeFormat('en-GB', {
+                    ...options,
+                    timeZone: 'Europe/London'
+                }).format(d);
+            } catch (e) {
+                console.error("Date formatting error:", e);
+                return "??:??";
+            }
         };
 
         // --- 2. TOOLTIP HISTOGRAM LOGIC ---
@@ -129,7 +136,7 @@
             const pct = bin.total_cars > 0 ? ((bin.speeding_cars/bin.total_cars)*100).toFixed(0) : 0;
             const threshold = parseInt(document.getElementById('threshold').value);
 
-            // FIX: Use the UK helper
+            // Uses the UK helper for the tooltip header
             const formattedDate = ukFormat(bin.bucket, { 
                 day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false 
             });
@@ -159,13 +166,26 @@
 
         // --- 3. CHART RENDERING ---
         function renderChart() {
-            // ... (keep your stats aggregation logic here) ...
+            const canvas = document.getElementById('trafficChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            if (chart) chart.destroy();
+
+            // Aggregate stats for the top cards
+            const totalObs = chartData.reduce((a, b) => a + b.total_cars, 0);
+            const totalSpeeders = chartData.reduce((a, b) => a + b.speeding_cars, 0);
+            const maxSpeed = Math.max(...chartData.map(b => b.top_speed), 0);
+
+            document.getElementById('stat-total').innerText = totalObs.toLocaleString();
+            document.getElementById('stat-pct').innerText = totalObs > 0 ? ((totalSpeeders/totalObs)*100).toFixed(1) + '%' : '0%';
+            document.getElementById('stat-max').innerText = maxSpeed.toFixed(1);
 
             chart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: chartData.map(b => {
-                        // FIX: Use UK helper for X-axis labels
+                        // Force X-axis labels into UK Time
                         if (currentHorizon === '5min') return ukFormat(b.bucket, { minute: '2-digit' }) + 'm';
                         if (currentHorizon === 'day') return ukFormat(b.bucket, { day: 'numeric', month: 'short' });
                         return ukFormat(b.bucket, { hour: '2-digit', hour12: false });
@@ -176,7 +196,8 @@
                     ]
                 },
                 options: {
-                    responsive: true, maintainAspectRatio: false,
+                    responsive: true, 
+                    maintainAspectRatio: false,
                     interaction: { mode: 'index', intersect: false },
                     plugins: { 
                         legend: { display: false },
@@ -213,19 +234,21 @@
                 const { data, error } = await supa
                     .from(view)
                     .select('*')
-                    // 1. Get the NEWEST data from the DB first
                     .order('bucket', { ascending: false }) 
                     .limit(limit);
 
                 if (error) throw error;
                 
-                // 2. Flip the array so the OLDER data is index[0] (Left) 
-                // and NEWER data is the last index (Right)
-                chartData = data.sort((a, b) => new Date(a.bucket) - new Date(b.bucket));
+                // Sort data so time flows Left -> Right
+                chartData = data.sort((a, b) => {
+                    const da = new Date(a.bucket.replace(' ', 'T') + 'Z');
+                    const db = new Date(b.bucket.replace(' ', 'T') + 'Z');
+                    return da - db;
+                });
                 
                 renderChart();
             } catch (err) {
-                console.error(err);
+                console.error("Fetch error:", err);
             }
         }
 
@@ -243,6 +266,7 @@
         // Auto-refresh every 60 seconds
         setInterval(fetchData, 60000);
 
+        // Initial load
         fetchData();
     </script>
 </body>
