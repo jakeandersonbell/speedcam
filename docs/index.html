@@ -116,10 +116,12 @@
             const pct = bin.total_cars > 0 ? ((bin.speeding_cars/bin.total_cars)*100).toFixed(0) : 0;
             const threshold = parseInt(document.getElementById('threshold').value);
 
+            // FIX: Force UTC interpretation by ensuring 'Z' suffix
+            const dateObj = new Date(bin.bucket.includes('Z') ? bin.bucket : bin.bucket + 'Z');
+
             let histHtml = '<div class="hist-container border-b border-slate-700/50">';
             counts.forEach((c, i) => {
                 const h = (c/max) * 100;
-                // Visualization logic for the tooltip bars
                 const barSpeeds = [0, 20, 25, 30, 35, 40];
                 const isSpeedingBar = barSpeeds[i] >= threshold;
                 histHtml += `<div class="hist-bar ${isSpeedingBar ? 'speeding' : ''}" style="height:${h}%"></div>`;
@@ -128,7 +130,7 @@
 
             return `
                 <div class="text-[10px] font-black text-slate-500 mb-1 uppercase">
-                    ${new Date(bin.bucket).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    ${dateObj.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })}
                 </div>
                 <div class="text-3xl font-black text-white">${bin.total_cars} <span class="text-[10px] text-slate-500">CARS</span></div>
                 <div class="flex items-center gap-2 mt-1">
@@ -147,7 +149,6 @@
             const ctx = document.getElementById('trafficChart').getContext('2d');
             if (chart) chart.destroy();
 
-            // Aggregate stats for the top cards
             const totalObs = chartData.reduce((a, b) => a + b.total_cars, 0);
             const totalSpeeders = chartData.reduce((a, b) => a + b.speeding_cars, 0);
             const maxSpeed = Math.max(...chartData.map(b => b.top_speed), 0);
@@ -160,10 +161,12 @@
                 type: 'bar',
                 data: {
                     labels: chartData.map(b => {
-                        const d = new Date(b.bucket);
-                        if (currentHorizon === '5min') return d.toLocaleTimeString([], {minute:'2-digit'}) + 'm';
+                        // FIX: Ensure the browser treats the bucket as UTC
+                        const d = new Date(b.bucket.includes('Z') ? b.bucket : b.bucket + 'Z');
+                        
+                        if (currentHorizon === '5min') return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false});
                         if (currentHorizon === 'day') return d.toLocaleDateString([], {day:'numeric', month:'short'});
-                        return d.toLocaleTimeString([], {hour: '2-digit'});
+                        return d.toLocaleTimeString([], {hour: '2-digit', hour12: false});
                     }),
                     datasets: [
                         { label: 'Speeding', data: chartData.map(b => b.speeding_cars), backgroundColor: '#ef4444', stack: 'a', borderRadius: 4 },
