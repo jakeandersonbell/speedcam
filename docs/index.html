@@ -200,29 +200,25 @@
 
         // --- 4. DATA FETCHING ---
         async function fetchData() {
-            const btn = document.querySelector('button[onclick="fetchData()"]');
-            btn.innerHTML = "⌛ WAIT";
-
-            let tableName = 'traffic_hourly'; 
-            let limitCount = 24; 
-
-            if (currentHorizon === '5min') { tableName = 'traffic_5min'; limitCount = 12; } 
-            else if (currentHorizon === '6hour') { tableName = 'traffic_6hour'; limitCount = 28; } 
-            else if (currentHorizon === 'day') { tableName = 'traffic_daily'; limitCount = 31; }
+            let view = 'traffic_hourly', limit = 24; 
+            if (currentHorizon === '5min') { view = 'traffic_5min'; limit = 12; } 
+            else if (currentHorizon === 'day') { view = 'traffic_daily'; limit = 31; }
 
             try {
                 const { data, error } = await supa
-                    .from(tableName)
+                    .from(view)
                     .select('*')
-                    .limit(limitCount);
+                    // EXPLICIT ORDER: Get newest first from DB
+                    .order('bucket', { ascending: false }) 
+                    .limit(limit);
 
                 if (error) throw error;
+                
+                // REVERSE: Put newest on the RIGHT for the chart
                 chartData = data.reverse(); 
                 renderChart();
             } catch (err) {
-                console.error("Aggregation Error:", err.message);
-            } finally {
-                btn.innerHTML = "🔄 Refresh";
+                console.error(err);
             }
         }
 
