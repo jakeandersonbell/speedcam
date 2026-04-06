@@ -1,6 +1,14 @@
 import cv2, time, collections, subprocess, numpy as np, os, threading, requests
 from pi.config import *
-from pi.supabase_utils import upload_observation, upload_env_data
+from pi.supabase_utils import upload_observation, upload_env_data, get_active_calibration_id
+
+# --- CALIBRATION SYNC ---
+# Fetch the current calibration ID from Supabase at boot
+CURRENT_CAL_ID = get_active_calibration_id()
+if CURRENT_CAL_ID:
+    print(f"🔗 RADAR LINKED: Calibration ID #{CURRENT_CAL_ID} Active.")
+else:
+    print("⚠️ WARNING: No active calibration found in database! Records will be untagged.")
 
 # --- INITIALISATION ---
 roi_mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
@@ -16,9 +24,7 @@ class EnvironmentMonitor:
         self.is_sampling = False
 
     def get_weather(self):
-        """ Fetch real-time precipitation for Stretford via wttr.in """
         try:
-            # format=j1 returns clean JSON
             r = requests.get("https://wttr.in/Stretford?format=j1", timeout=10).json()
             curr = r['current_condition'][0]
             return {
@@ -37,7 +43,6 @@ class EnvironmentMonitor:
         w = self.get_weather()
         
         data = {
-            "t": int(time.time()),
             "lux": round(avg_light, 2),
             "rain": w['rain'],
             "temp": w['temp'],
@@ -45,11 +50,9 @@ class EnvironmentMonitor:
             "cond": w['cond']
         }
         threading.Thread(target=upload_env_data, args=(data,)).start()
-        print(f"☁️ ENV LOG: Light {avg_light:.1f} | Rain {w['rain']}mm | {w['cond']}")
         self.brightness_samples = []
 
     def start_window(self):
-        print("🕒 Research: Starting 60s Light/Weather sample...")
         self.is_sampling = True
         threading.Timer(60, self.stop_window).start()
 
@@ -64,7 +67,6 @@ def analyse_event(frames_with_times):
     tracks = [] 
 
     for frame, arrival_time in frames_with_times:
-        # Get blobs
         masked = cv2.bitwise_and(frame, frame, mask=roi_mask)
         fg = fgbg.apply(masked)
         _, thr = cv2.threshold(cv2.dilate(fg, np.ones((5,5), np.uint8), iterations=3), 200, 255, cv2.THRESH_BINARY)
@@ -79,8 +81,7 @@ def analyse_event(frames_with_times):
                     lx, ly, _ = t['p'][-1]
                     if np.sqrt((cx-lx)**2 + (cy-ly)**2) < 95:
                         t['p'].append((cx, cy, arrival_time))
-                        t['w'].append(w)
-                        t['r'].append(h/w)
+                        t['w'].append(w); t['r'].append(h/w)
                         matched = True
                         break
                 if not matched:
@@ -90,11 +91,10 @@ def analyse_event(frames_with_times):
         path = car['p']
         if len(path) < MIN_POINTS_FOR_TRACK: continue
 
-        # DIRECTIONAL LANE LOGIC
         dx_total = path[-1][0] - path[0][0]
         lane = 'near' if dx_total > 0 else 'far'
         
-        if time.time() - last_clocked_times[lane] < 0.4: continue
+        if time.time() - last_clocked_times[lane] < TRIGGER_COOLDOWN: continue
         
         mpp = MPP_NEAR if lane == 'near' else MPP_FAR
         speeds = []
@@ -108,9 +108,16 @@ def analyse_event(frames_with_times):
 
         if MIN_PLAUSIBLE_SPEED < final_speed < MAX_PLAUSIBLE_SPEED and abs(dx_total) > (WIDTH * 0.25):
             last_clocked_times[lane] = time.time()
-            hw_history.append(np.median(car['r']))
-            threading.Thread(target=upload_observation, args=(lane, round(final_speed,1), int(np.median(car['w'])), round(np.mean(hw_history),2))).start()
-            print(f"🎯 {lane.upper()}: {final_speed:.1f} MPH")
+            median_w = int(np.median(car['w']))
+            mean_ratio = round(np.mean(car['r']), 2)
+            
+            # THE DB UPLOAD: Now includes the CURRENT_CAL_ID
+            threading.Thread(
+                target=upload_observation, 
+                args=(lane, round(final_speed, 1), median_w, mean_ratio, CURRENT_CAL_ID),
+                daemon=True
+            ).start()
+            print(f"🎯 {lane.upper()}: {final_speed:.1f} MPH (Cal #{CURRENT_CAL_ID})")
 
 def schedule_env():
     env_monitor.start_window()
@@ -122,7 +129,7 @@ pipe = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=FRAME_SIZE * 30)
 rolling_buffer = collections.deque(maxlen=PRE_ROLL)
 is_recording, frame_count = False, 0
 
-print(f"📡 Stretford Radar v10.1 [wttr.in edition] Active.")
+print(f"📡 Stretford Radar Active. Monitoring...")
 schedule_env()
 
 try:
